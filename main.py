@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 import sys
 import ctypes
+import webbrowser
 
 user32 = ctypes.windll.user32
 
@@ -9,10 +10,7 @@ user32.SetProcessDPIAware()
 screen_w = user32.GetSystemMetrics(0)
 screen_h = user32.GetSystemMetrics(1)
 
-
-
 def get_hwnd():
-    # DPG использует glfw под капотом
     return user32.FindWindowW(None, "RetroImageViewer")
 
 SW_MINIMIZE = 6
@@ -47,6 +45,9 @@ print(screen_w, screen_h)
 
 img_tag = 0
 
+def show_about():
+    webbrowser.open("https://github.com/RetroMaidRage/RetroImageViewer")  # сюда вставляй свою ссылку
+
 def print_me(sender):
     print(f"Menu Item: {sender}")
 
@@ -59,7 +60,6 @@ def app_close():
 def configure_image(file, width, height):
     viewport_width = dpg.get_viewport_client_width()
     viewport_height = dpg.get_viewport_client_height()
-
 
     img_w = viewport_width
     img_h = img_w / img_aspectratio
@@ -88,7 +88,7 @@ def open_image(sender, app_data):
     loaded_image = dpg.load_image(file_path)
 
     if loaded_image is None:
-        print("n")
+        print("Wrong image/can't load it.")
         return
 
     width, height, channels, data = loaded_image
@@ -152,12 +152,10 @@ with dpg.viewport_menu_bar():
             dpg.add_menu_item(label="0", callback=print_me)
         with dpg.menu(label="View"):
             dpg.add_menu_item(label="0", callback=print_me)
-        dpg.add_menu_item(label="About", callback=print_me)
+        dpg.add_menu_item(label="About", callback=show_about)
 
 
     dpg.set_item_pos("left_menu_group", [0, 0])
-
-
 
     with dpg.group(horizontal=True, tag="right_menu_group"):
         dpg.add_menu_item(label="-", callback=minimize_window)
@@ -165,17 +163,17 @@ with dpg.viewport_menu_bar():
         dpg.add_menu_item(label="x", callback=app_close)
 
 
-
 with dpg.window(label="", tag="main_window", pos=[0,30],
- no_move=True, no_collapse=True,no_close=True, no_scrollbar=True, no_scroll_with_mouse=True, no_resize=True):
+ no_move=True, no_collapse=True,no_close=True, no_scrollbar=True, no_scroll_with_mouse=False, no_resize=True):
     viewport_width = dpg.get_viewport_client_width()
     viewport_height= dpg.get_viewport_client_height()
 
     dpg.add_image("texture_tag", tag='main_img', height=viewport_height, width=viewport_width)
 
 with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag="file_dialog", width=screen_w//3, height=screen_h//3):
-    dpg.add_file_extension(".jpg", color=(255, 255, 255, 255))
-    dpg.add_file_extension(".png", color=(255, 255, 255, 255))
+    dpg.add_file_extension(".jpg", color=(144, 238, 144, 255))
+    dpg.add_file_extension(".jpeg", color=(144, 238, 143, 255))
+    dpg.add_file_extension(".png", color=(144, 238, 143, 255))
 
 
 def on_resize(sender, app_data):
