@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+import os
 import sys
 import ctypes
 import webbrowser
@@ -44,6 +45,12 @@ def maximize_window():
 print(screen_w, screen_h)
 
 img_tag = 0
+
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
 
 def show_about():
     webbrowser.open("https://github.com/RetroMaidRage/RetroImageViewer")  # сюда вставляй свою ссылку
@@ -133,10 +140,11 @@ def open_image_from_start(file_path):
     configure_image(file_path, width, height)
 
 dpg.create_context()
-dpg.create_viewport(title='RetroImageViewer', width=screen_w//2, height=screen_h//2, x_pos=0, y_pos=0)
+dpg.create_viewport(title='RetroImageViewer', width=screen_w//2, height=screen_h//2, x_pos=screen_w//4, y_pos=screen_h//4)
 
 with dpg.font_registry():
-    default_font = dpg.add_font("fonts/segoe-ui.ttf", 24)
+    default_font = dpg.add_font(resource_path("fonts/selawk.ttf"), 24)
+
 dpg.bind_font(default_font)
 with dpg.texture_registry(show=False):
     dpg.add_static_texture(1, 1, default_value=[50/255,50/255,50/255,255], tag="texture_tag")
@@ -217,7 +225,7 @@ if len(sys.argv) > 1:
 
     open_image_from_start(sys.argv[1])
 else:
-    loaded_image = "icons/img.jpg"
+    loaded_image = resource_path("icons/img.jpg")
     width, height, channels, data = dpg.load_image(loaded_image)
     img_aspectratio = width / height
     print(width, width, img_aspectratio)
