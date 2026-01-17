@@ -28,6 +28,8 @@ custom_decorator = False
 
 print("Screen resolution:",screen_w,"x",screen_h)
 
+
+
 class Window:
     @staticmethod
 
@@ -166,6 +168,7 @@ def open_image(sender, app_data):
     dpg.configure_item("main_img", texture_tag=new_img_tag)
 
     configure_image(file_path, width, height)
+    on_resize(None, None)
 
 def open_image_from_start(file_path):
     global img_tag, img_aspectratio, loaded_image
@@ -193,6 +196,7 @@ def open_image_from_start(file_path):
     dpg.configure_item("main_img", texture_tag=new_img_tag)
 
     configure_image(file_path, width, height)
+    on_resize(None, None)
 
 dpg.create_context()
 #dpg.create_viewport(title='RetroImageViewer', width=screen_w//2, height=screen_h//2, x_pos=screen_w//4, y_pos=screen_h//4)
@@ -242,38 +246,32 @@ with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag
 
 def on_resize(sender, app_data):
     global img_aspectratio
-    viewport_width = dpg.get_viewport_client_width()
-    viewport_height = dpg.get_viewport_client_height()
+    viewport_width = dpg.get_viewport_width()
+    viewport_height = dpg.get_viewport_height()
 
-    window_height = dpg.get_item_height("main_window")
-    max_img_w = viewport_width
-    max_img_h = viewport_height
+    title_offset = 30  # смещение под title barы
+    # Считаем доступное место для картинки
+    available_height = viewport_height - title_offset
+    available_width = viewport_width
 
-    img_w = max_img_w
-    img_h = img_w / img_aspectratio
+    # Подгоняем картинку по меньшей стороне
+    aspect_img = img_aspectratio
+    aspect_view = available_width / available_height
 
-    if img_h > max_img_h:
-        img_h = max_img_h
-        img_w = img_h * img_aspectratio #высот расчитывается неверно
-    # меню справа
-    if custom_decorator == True:
-        group_width = dpg.get_item_width("right_menu_group")
-        spacer_width = viewport_width - group_width - 80
-        dpg.configure_item("spacer", width=max(spacer_width, 0))
-        #dpg.set_item_pos("right_menu_group", [viewport_width - group_width - 65, 0])
-    # окно
+    if aspect_img > aspect_view:
+        img_w = available_width*0.975
+        img_h = img_w / aspect_img
+    else:
+        img_h = available_height*0.975 #добавить в open image
+        img_w = img_h * aspect_img
+
+    # Центрируем картинку с учётом смещения
+    x = (viewport_width - img_w) / 2
+    y = (available_height - img_h) / 2 + title_offset
+
     dpg.set_item_width("main_window", viewport_width)
     dpg.set_item_height("main_window", viewport_height)
-
-    # картинка
-    window_pos = dpg.get_item_pos("main_window")
-
-    x = (viewport_width - img_w) / 2
-    y = (window_pos[1] + (viewport_height - img_h) / 2)
-
-    x = max(0, (viewport_width - img_w) / 2)
-    y  = max(0, (viewport_height - img_h) / 2)
-    dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y]) #тт проблема
+    dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y])
 
     print(f"""Image size after resize: {str(int(img_w))}x{img_h}""")
 
@@ -296,7 +294,7 @@ with dpg.theme() as menu_theme:
 if len(sys.argv) > 1:
     open_image_from_start(sys.argv[1])
 else:
-    loaded_image = resource_path("icons/img.jpg")
+    loaded_image = resource_path("1.jpg")
     width, height, channels, data = dpg.load_image(loaded_image)
     img_aspectratio = width / height
     print(width, width, img_aspectratio)
@@ -308,7 +306,7 @@ dpg.bind_item_theme("main_window", menu_theme)
 dpg.bind_theme(menu_theme)
 
 dpg.set_viewport_resize_callback(on_resize)
- 
+on_resize(None, None)
 
 dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
