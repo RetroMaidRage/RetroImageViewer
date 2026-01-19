@@ -7,6 +7,9 @@ import webbrowser
 import configparser
 import pywinstyles
 import time
+#import numpy as np
+import cv2
+import random
 
 user32 = ctypes.windll.user32
 
@@ -33,6 +36,9 @@ custom_decorator = False
 
 image_path = None
 show_wv = True
+
+useOpenCV = True
+img_save_num = 0
 
 config = configparser.ConfigParser()
 config['FIRST_LAUNCH'] = {'First_launch': 'True'}
@@ -119,7 +125,12 @@ class MenuBar:
     @staticmethod
 
     def save_btn():
-        print("1")
+        global img, img_save_num
+        img_save_num +=1
+        image_name = "img_"+str(random.randint(0,99999999999))+".jpg"
+        save_img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        cv2.imwrite("output/"+image_name, save_img)
+        print(f"Image saved in output/{image_name}.")
 
     def save_as_btn():
         user32.ShowWindow(get_hwnd(), SW_MAXIMIZE)
@@ -167,6 +178,11 @@ class settings_ui:
             if settings_ui.spacing:
                 dpg.configure_item(item, width=settings_ui.spacing_set)
 
+        save_settings()
+
+    def use_opencv():
+        global useOpenCV
+        useOpenCV = not useOpenCV
         save_settings()
 
 current_index = 0
@@ -249,6 +265,64 @@ def configure_image(file, width, height):
     dpg.configure_item("main_window", label=image_data)
     print(f"""Image size: {img_w}x{img_h}""")
 
+def opencv_image(file_path):
+    global img
+    img = cv2.imread(file_path)        # BGR
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)  # конвертируем в RGBA
+    height, width, channels = img.shape
+    data = img.flatten() / 255.0
+    return width, height, channels, data
+
+def update_texture_from_memory():
+    """Обновляем статическую текстуру на основе глобального img"""
+    global img, img_tag, loaded_image, img_width, img_height, img_aspectratio
+
+    img_height, img_width, channels = img.shape
+    img_aspectratio = img_width / img_height
+
+    data = img.flatten() / 255.0
+
+    old_img_tag = "img_" + str(img_tag)
+
+    img_tag += 1
+    new_img_tag = "img_" + str(img_tag)
+
+    with dpg.texture_registry(show=False):
+        dpg.add_static_texture(width=img_width, height=img_height, default_value=data, tag=new_img_tag)
+
+    dpg.configure_item("main_img", texture_tag=new_img_tag)
+
+    if dpg.does_item_exist(old_img_tag):
+        dpg.delete_item(old_img_tag)
+
+    configure_image(image_path, img_width, img_height)
+    configure_text(image_path)
+
+    loaded_image = (img_width, img_height, channels, data)
+
+    on_resize(None, None)
+
+
+class OpenCV:
+    @staticmethod
+
+    def openCVRotate90():
+        global img
+        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        update_texture_from_memory()
+
+    def openCVRotateM90():
+        global img
+        img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        update_texture_from_memory()
+
+    def openCVGrayscale():
+        global img
+        grayscale = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
+        img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
+        update_texture_from_memory()
+
+
 def load_image_by_index(index):
     global current_index
     if 0 <= index < len(img_list):
@@ -260,13 +334,21 @@ def load_image_by_index(index):
 
 def load_new_image(file_path):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
-    loaded_image = dpg.load_image(file_path)
+
+    if useOpenCV == True:
+        loaded_image = opencv_image(file_path)
+    else:
+        loaded_image = dpg.load_image(file_path)
 
     if loaded_image is None:
         print("Wrong image/can't load it. "+"Filepath: "+file_path)
         return
 
-    width, height, channels, data = loaded_image
+    if useOpenCV == True:
+        width, height, channels, data = opencv_image(file_path)
+        print("1")
+    else:
+        width, height, channels, data = loaded_image
     img_width, img_height = width, height
     img_aspectratio = width / height
 
@@ -390,7 +472,10 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="Open...", callback=MenuBar.show_dialogue)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp1")
         with dpg.menu(label="Edit", tag="menu_btn2"):
-            dpg.add_menu_item(label="0", callback=print_me)
+            dpg.add_menu_item(label="Rotate 90", callback=OpenCV.openCVRotate90)
+            dpg.add_menu_item(label="Rotate -90", callback=OpenCV.openCVRotateM90)
+            dpg.add_separator()
+            dpg.add_menu_item(label="Grayscale", callback=OpenCV.openCVGrayscale)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
             dpg.add_menu_item(label="0", callback=print_me)
@@ -423,9 +508,9 @@ pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
              dpg.add_text("It's seems this your first time here, it would be better if you visit setting page.", tag="welcome_text")
         dpg.add_button(label="It's here...", width=100, callback=MenuBar.show_settings)
 
-with dpg.window(label="Settings", tag="settings_window", show=False,
-pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
-, width=800, height=800):
+with dpg.window(label="Settings", tag="settings_window", show=True,
+pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
+, width=600, height=800):
         with dpg.group(tag="settings_group"):
              dpg.add_text("Menu panel", tag="settings_text")
              dpg.add_checkbox(label="Use custom decorator", tag="checkbox_1", callback=cb_items.checkbox_cd)
@@ -433,11 +518,13 @@ pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
                  dpg.add_checkbox(label="Menu spacing", tag="checkbox_2", default_value = settings_ui.spacing, callback=settings_ui.menu_bar_spacing)
                  dpg.add_slider_float(label="Spacing", width=200, min_value=0.00, max_value=400.00, default_value=settings_ui.spacing_set, callback=settings_ui.menu_bar_spacing_set)
              dpg.add_separator()
-             with dpg.group(horizontal=True, tag="settings_group2"):
+             with dpg.group(tag="settings_group2"):
                  dpg.add_text("Behaviour", tag="settings_text2")
+                 dpg.add_checkbox(label="Use OpenCV library\n(Required for image processing).", tag="checkbox_3", default_value = useOpenCV, callback=settings_ui.use_opencv)
              dpg.add_separator()
-             with dpg.group(horizontal=True, tag="settings_group3"):
-                 dpg.add_text("Debug", tag="settings_text3")
+             with dpg.group(tag="settings_group3"):
+                 dpg.add_text("Debug", tag="debug_text")
+                 dpg.add_text("Version: 0.07a-win", tag="debug_text1")
 
 if show_wv == True:
     with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], height=600):
@@ -513,7 +600,7 @@ with dpg.theme() as btn_theme:
 
 with dpg.theme() as checkbox_theme:
     with dpg.theme_component(dpg.mvAll):
-        dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (255, 255, 255, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (220, 220, 220, 255))
         dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (65, 65, 65, 255))
         dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (70, 70, 70, 255))
         dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 70, 70, 255))
@@ -570,6 +657,7 @@ dpg.bind_item_theme("info_window", transparent_theme)
 dpg.bind_item_theme("settings_window", non_transparent_theme)
 dpg.bind_item_theme("checkbox_1", checkbox_theme)
 dpg.bind_item_theme("settings_group1", checkbox_theme)
+dpg.bind_item_theme("settings_group2", checkbox_theme)
 dpg.bind_item_theme("welcome_window", non_transparent_theme)
 
 with dpg.handler_registry():
