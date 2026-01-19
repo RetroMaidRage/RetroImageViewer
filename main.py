@@ -6,6 +6,8 @@ import ctypes
 import webbrowser
 import configparser
 import pywinstyles
+import time
+
 user32 = ctypes.windll.user32
 
 user32.SetProcessDPIAware()
@@ -25,14 +27,44 @@ isMaximized = False
 dragging = False
 
 img_tag = 0
+int_img_tag = 0
 
 custom_decorator = False
 
 image_path = None
 show_wv = True
 
+config = configparser.ConfigParser()
+config['FIRST_LAUNCH'] = {'First_launch': 'True'}
+config['Theme'] = {'isspacing': 'True',
+                     'intspacing': '0.0',}
+
+if os.path.isfile("settings.ini"):
+    print("Config file detected.")
+else:
+    print("No config file. Creating...")
+    with open("settings.ini", "w") as configfile:
+        config.write(configfile)
+
+config.read("settings.ini")
+
+isFirstLaunch = config.getboolean("FIRST_LAUNCH", "First_launch")
+
+if isFirstLaunch == True:
+    print("First launch: ", isFirstLaunch)
+    with open("settings.ini", "w") as configfile:
+        config['FIRST_LAUNCH'] = {'First_launch': 'False'}
+        config.write(configfile)
+
 print("Screen resolution:",screen_w,"x",screen_h)
 
+def save_settings():
+    config['FIRST_LAUNCH']['First_launch'] = str(isFirstLaunch)
+    config['Theme']['isspacing'] = str(settings_ui.spacing)
+    config['Theme']['intspacing'] = str(settings_ui.spacing_set)
+    with open("settings.ini", "w") as f:
+        config.write(f)
+        print("New settings saved into settings.ini")
 
 class Window:
     @staticmethod
@@ -90,6 +122,7 @@ class MenuBar:
         print("1")
 
     def save_as_btn():
+        user32.ShowWindow(get_hwnd(), SW_MAXIMIZE)
         print("2")
 
     def show_dialogue(sender):
@@ -109,8 +142,9 @@ class cb_items:
         print("There no config now. Checkbox: "+str(show_wv))
 
 class settings_ui:
-    spacing = True
-    spacing_set = 0.0
+    spacing = config.getboolean("Theme", "isspacing")
+    spacing_set = config.getfloat("Theme", "intspacing")
+    print(spacing, spacing_set)
     spacing_items = ["sp1", "sp2", "sp3", "sp4"]
 
     @staticmethod
@@ -124,6 +158,8 @@ class settings_ui:
             else:
                 dpg.hide_item(item)
 
+        save_settings()
+
     def menu_bar_spacing_set(sender, app_data):
         settings_ui.spacing_set = app_data
         print("Spacing set to: ", settings_ui.spacing_set)
@@ -131,8 +167,28 @@ class settings_ui:
             if settings_ui.spacing:
                 dpg.configure_item(item, width=settings_ui.spacing_set)
 
+        save_settings()
 
+current_index = 0
+img_list = []
 
+class Controls:
+    @staticmethod
+
+    def prev_img():
+        global current_index
+        if current_index > 0:
+            current_index -= 1
+            load_new_image(img_list[current_index])
+            print("Image index: ", current_index)
+
+    def next_img():
+        global current_index
+        if current_index < len(img_list) - 1:
+            current_index += 1
+            load_new_image(img_list[current_index])
+            print("Image index: ", current_index)
+    #print(img_list[current_index])
 
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
@@ -151,7 +207,14 @@ def configure_text(file):
 
     file_size = os.path.getsize(file) / 1024
 
-    text_label = (f"""Name: {os.path.basename(file).split(".")[0]}\nResolution: {img_width}x{img_height}\nSize: {file_size:.0f} KB\n----------------------\nPath: '{os.path.abspath(file)}' """)
+    text_label = (f"""Name: {os.path.basename(file).split(".")[0]}
+Resolution: {img_width}x{img_height}
+Size: {file_size:.0f} KB
+----------------------
+Image path: '{os.path.abspath(file)}'
+Debug index: {current_index}
+Images found in folder: {len(img_list)}
+Folder: {os.path.dirname(file)}""")
 
     dpg.configure_item("info_text", default_value=text_label, pos=[5, text_y])
 
@@ -186,11 +249,64 @@ def configure_image(file, width, height):
     dpg.configure_item("main_window", label=image_data)
     print(f"""Image size: {img_w}x{img_h}""")
 
+def load_image_by_index(index):
+    global current_index
+    if 0 <= index < len(img_list):
+        current_index = index
+        load_new_image(img_list[current_index])
+        configure_text(img_list[current_index])
+    else:
+        print("Image idex out of range:", index)
+
+def load_new_image(file_path):
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
+    loaded_image = dpg.load_image(file_path)
+
+    if loaded_image is None:
+        print("Wrong image/can't load it. "+"Filepath: "+file_path)
+        return
+
+    width, height, channels, data = loaded_image
+    img_width, img_height = width, height
+    img_aspectratio = width / height
+
+    img_tag += 1
+
+    new_img_tag = "img_"+str(img_tag)
+
+    old_img_tag = img_tag-1
+    old_img_name_tag = "img_"+str(old_img_tag)
+
+    print("New texture tag: ", new_img_tag)
+
+    print("Old texture tag: ", old_img_name_tag)
+
+    #if int_img_tag >= img_tag:
+        #dpg.delete_item(old_img_name_tag)
+
+    if dpg.does_item_exist(old_img_name_tag):
+        dpg.delete_item(old_img_name_tag)
+        print(f"Old texture tag: {old_img_name_tag} deleted")
+    else:
+        print(f"Old texture tag: {old_img_name_tag} not found")
+
+    with dpg.texture_registry(show=False):
+        dpg.add_static_texture(width=width, height=height, default_value=data, tag=new_img_tag)
+
+    dpg.configure_item("main_img", texture_tag=new_img_tag)
+    configure_image(file_path, width, height)
+    on_resize(None, None)
+
+    print(f"""Image: {img_name} | Res: {width}x{height} | Tag: {new_img_tag}""")
+
+    configure_text(img_list[current_index])
+
 
 def open_image(sender, app_data):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index
     file_path = app_data["file_path_name"]
     found = False
+    folder = os.path.dirname(file_path)
     if file_path.endswith(".*"):
         folder = os.path.dirname(file_path)
         print("Dir: "+file_path)
@@ -205,59 +321,52 @@ def open_image(sender, app_data):
         if not found:
             print("Can't open this file. "+"Filepath: "+file_path)
             return
+    img_name=name
+    current_image = os.path.abspath(file_path)
+    current_folder = folder
+
+    img_list = sorted([
+        os.path.abspath(os.path.join(folder, f))
+        for f in os.listdir(folder)
+        if f.lower().endswith((".jpg", ".png"))
+    ])
+
+
+    current_index = img_list.index(file_path)
+
+    print("index", current_index)
+
     image_path = file_path
     viewport_width = dpg.get_viewport_client_width()
     viewport_height = dpg.get_viewport_client_height()
-    loaded_image = dpg.load_image(file_path)
 
-    if loaded_image is None:
-        print("Wrong image/can't load it."+"Filepath: "+file_path)
-        return
-
-    width, height, channels, data = loaded_image
-    img_width, img_height = width, height
-    img_aspectratio = width / height
-
-    img_tag += 1
-    new_img_tag = "img_"+str(img_tag)
-
-    print(f"""Image: {name} | Res: {width}x{height} | Tag: {new_img_tag}""")
-
-    with dpg.texture_registry(show=False):
-       dpg.add_static_texture(width=width, height=height, default_value=data, tag=new_img_tag)
-
-
-    dpg.configure_item("main_img", texture_tag=new_img_tag)
-
-    configure_image(file_path, width, height)
-    on_resize(None, None)
+    load_new_image(img_list[current_index])
 
 def open_image_from_start(file_path):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height
-    print("Opening: ",file_path)
-    loaded_image = dpg.load_image(file_path)
-    image_path = file_path
-    if loaded_image is None:
-        print("Image is None")
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
+
+    file_path = os.path.abspath(file_path)
+    folder = os.path.dirname(file_path)
+    name = os.path.splitext(os.path.basename(file_path))[0]
+    img_name = name
+
+    img_list = sorted([
+        os.path.abspath(os.path.join(folder, f))
+        for f in os.listdir(folder)
+        if f.lower().endswith((".jpg", ".png"))
+    ])
+
+    if file_path not in img_list:
+        print("Can't open this file. "+"Filepath: "+file_path)
         return
 
-    width, height, channels, data = loaded_image
-    img_width, img_height = width, height
-    img_aspectratio = width / height
+    current_index = img_list.index(file_path)
+    print("index", current_index)
 
-    img_tag += 1
-    new_img_tag = "img_"+str(img_tag)
+    image_path = file_path
 
-    print(f"""Image: {file_path} | Res: {width}x{height} | Tag: {new_img_tag}""")
+    load_new_image(img_list[current_index])
 
-    with dpg.texture_registry(show=False):
-       dpg.add_static_texture(width=width, height=height, default_value=data, tag=new_img_tag)
-
-
-    dpg.configure_item("main_img", texture_tag=new_img_tag)
-
-    configure_image(file_path, width, height)
-    on_resize(None, None)
 
 dpg.create_context()
 #dpg.create_viewport(title='RetroImageViewer', width=screen_w//2, height=screen_h//2, x_pos=screen_w//4, y_pos=screen_h//4)
@@ -307,7 +416,7 @@ no_scrollbar=False, no_scroll_with_mouse=False,
 no_bring_to_front_on_focus=True, no_resize=True):
     dpg.add_image("texture_tag", tag='main_img')
 
-with dpg.window(label="Welcome!", tag="welcome_window",
+with dpg.window(label="Welcome!", show=isFirstLaunch, tag="welcome_window",
 pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
 , width=800, height=800):
         with dpg.group(horizontal=True, tag="welcome_group"):
@@ -325,7 +434,11 @@ pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
                  dpg.add_slider_float(label="Spacing", width=200, min_value=0.00, max_value=400.00, default_value=settings_ui.spacing_set, callback=settings_ui.menu_bar_spacing_set)
              dpg.add_separator()
              with dpg.group(horizontal=True, tag="settings_group2"):
-                 dpg.add_text("Appearance", tag="settings_text1")
+                 dpg.add_text("Behaviour", tag="settings_text2")
+             dpg.add_separator()
+             with dpg.group(horizontal=True, tag="settings_group3"):
+                 dpg.add_text("Debug", tag="settings_text3")
+
 if show_wv == True:
     with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], height=600):
         with dpg.group(horizontal=True, tag="info_group"):
@@ -434,7 +547,7 @@ with dpg.theme() as non_transparent_theme:
 if len(sys.argv) > 1:
     open_image_from_start(sys.argv[1])
 else:
-    loaded_image = resource_path("1.jpg")
+    loaded_image = resource_path("icons/img.jpg")
     width, height, channels, data = dpg.load_image(loaded_image)
     img_aspectratio = width / height
     print(width, width, img_aspectratio)
@@ -459,6 +572,10 @@ dpg.bind_item_theme("checkbox_1", checkbox_theme)
 dpg.bind_item_theme("settings_group1", checkbox_theme)
 dpg.bind_item_theme("welcome_window", non_transparent_theme)
 
+with dpg.handler_registry():
+    dpg.add_key_press_handler(dpg.mvKey_Left, callback=Controls.prev_img)
+    dpg.add_key_press_handler(dpg.mvKey_Right, callback=Controls.next_img)
+
 
 with dpg.item_handler_registry(tag="inf_resize"):
     dpg.add_item_resize_handler(callback=lambda s,a: configure_text(image_path))
@@ -466,11 +583,11 @@ dpg.bind_item_handler_registry("info_window", "inf_resize")
 
 dpg.set_viewport_resize_callback(on_resize)
 on_resize(None, None)
-
 dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
-dpg.show_viewport()
+dpg.show_viewport() # 50 мс — достаточно
 pywinstyles.change_header_color(get_hwnd(), color="#151515")
 dpg.start_dearpygui()
+
 dpg.destroy_context()
