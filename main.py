@@ -11,6 +11,12 @@ import time
 import cv2
 import random
 
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+
 user32 = ctypes.windll.user32
 
 user32.SetProcessDPIAware()
@@ -20,6 +26,13 @@ screen_h = user32.GetSystemMetrics(1)
 
 def get_hwnd():
     return user32.FindWindowW(None, "RetroImageViewer")
+
+if not os.path.exists("output"):
+    os.makedirs("output")
+    print("No output folder. Creating...")
+else:
+    print("Output folder detected.")
+
 
 SW_MINIMIZE = 6
 SW_RESTORE = 9
@@ -45,14 +58,14 @@ config['FIRST_LAUNCH'] = {'First_launch': 'True'}
 config['Theme'] = {'isspacing': 'True',
                      'intspacing': '0.0',}
 
-if os.path.isfile("settings.ini"):
+if os.path.isfile(resource_path("settings.ini")):
     print("Config file detected.")
 else:
     print("No config file. Creating...")
     with open("settings.ini", "w") as configfile:
         config.write(configfile)
 
-config.read("settings.ini")
+config.read(resource_path("settings.ini"))
 
 isFirstLaunch = config.getboolean("FIRST_LAUNCH", "First_launch")
 
@@ -129,12 +142,15 @@ class MenuBar:
         img_save_num +=1
         image_name = "img_"+str(random.randint(0,99999999999))+".jpg"
         save_img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-        cv2.imwrite("output/"+image_name, save_img)
+        cv2.imwrite(resource_path("output/"+image_name), save_img)
         print(f"Image saved in output/{image_name}.")
 
     def save_as_btn():
         user32.ShowWindow(get_hwnd(), SW_MAXIMIZE)
         print("2")
+
+    def show_edit_text():
+        dpg.show_item("cv_text")
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog")
@@ -206,11 +222,6 @@ class Controls:
             print("Image index: ", current_index)
     #print(img_list[current_index])
 
-def resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
-
 def print_me(sender):
     print(f"Menu Item: {sender}")
 
@@ -268,13 +279,13 @@ def configure_image(file, width, height):
 def opencv_image(file_path):
     global img
     img = cv2.imread(file_path)        # BGR
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)  # конвертируем в RGBA
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
     height, width, channels = img.shape
     data = img.flatten() / 255.0
     return width, height, channels, data
 
 def update_texture_from_memory():
-    """Обновляем статическую текстуру на основе глобального img"""
+
     global img, img_tag, loaded_image, img_width, img_height, img_aspectratio
 
     img_height, img_width, channels = img.shape
@@ -320,6 +331,13 @@ class OpenCV:
         global img
         grayscale = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
         img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
+        update_texture_from_memory()
+
+    def openCVText():
+        global img
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text = dpg.get_value("input_text_1")
+        cv2.putText(img, text, (0, 50), font, 3, (255, 255, 255), 5)
         update_texture_from_memory()
 
 
@@ -476,6 +494,8 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="Rotate -90", callback=OpenCV.openCVRotateM90)
             dpg.add_separator()
             dpg.add_menu_item(label="Grayscale", callback=OpenCV.openCVGrayscale)
+            dpg.add_separator()
+            dpg.add_menu_item(label="Text", callback=MenuBar.show_edit_text)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
             dpg.add_menu_item(label="0", callback=print_me)
@@ -525,6 +545,12 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
              with dpg.group(tag="settings_group3"):
                  dpg.add_text("Debug", tag="debug_text")
                  dpg.add_text("Version: 0.07a-win", tag="debug_text1")
+
+
+with dpg.window(label="Add text", tag="cv_text", show=False,pos=[(dpg.get_viewport_width()-400)/2, (dpg.get_viewport_height()-250)/2], width=400, height=250):
+    with dpg.group(horizontal=True,tag="edit_text_gp"):
+        dpg.add_input_text(tag="input_text_1")
+        dpg.add_button(label="Apply", callback=OpenCV.openCVText)
 
 if show_wv == True:
     with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], height=600):
@@ -655,6 +681,7 @@ dpg.bind_item_theme("menu_btn6", btn_theme)
 
 dpg.bind_item_theme("info_window", transparent_theme)
 dpg.bind_item_theme("settings_window", non_transparent_theme)
+dpg.bind_item_theme("cv_text", transparent_theme)
 dpg.bind_item_theme("checkbox_1", checkbox_theme)
 dpg.bind_item_theme("settings_group1", checkbox_theme)
 dpg.bind_item_theme("settings_group2", checkbox_theme)
