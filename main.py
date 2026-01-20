@@ -7,7 +7,8 @@ import webbrowser
 import configparser
 import pywinstyles
 import time
-#import numpy as np
+
+import numpy as np
 import cv2
 import random
 
@@ -52,7 +53,7 @@ show_wv = True
 
 useOpenCV = True
 img_save_num = 0
-
+img_channels = 0
 scale = 0.8645
 scale_mod = 0.05
 
@@ -156,6 +157,9 @@ class MenuBar:
         user32.ShowWindow(get_hwnd(), SW_MAXIMIZE)
         print("2")
 
+    def show_edit_rgb_shift():
+        dpg.show_item("cv_rgb_shift")
+
     def show_edit_text():
         dpg.show_item("cv_text")
 
@@ -164,6 +168,9 @@ class MenuBar:
 
     def show_settings():
         dpg.show_item("settings_window")
+
+    def show_info():
+        dpg.show_item("info_window")
 
     def show_about():
         webbrowser.open("https://github.com/RetroMaidRage/RetroImageViewer")
@@ -237,6 +244,12 @@ class Controls:
             load_new_image(img_list[current_index])
             print("Image index: ", current_index)
     #print(img_list[current_index])
+
+    def clear_img():
+        global current_index
+        if dpg.is_key_down(dpg.mvKey_Q):
+            load_new_image(img_list[current_index])
+            print("Image reloaded.")
 
     def scaling(s, a):
         global scale
@@ -373,6 +386,31 @@ class OpenCV:
         img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
         update_texture_from_memory()
 
+    def openCVRGB_Shift():
+        global img
+
+        r,g,b,a = cv2.split(img)
+
+        value_r = dpg.get_value("rgb_s_1") #r
+        value_g = dpg.get_value("rgb_s_2") #g
+        value_b = dpg.get_value("rgb_s_3") #b
+        r_shifted = np.roll(r, value_r, axis=1)  # сдвиг по горизонтали на 5 пикселей
+        g_shifted = np.roll(g, value_g, axis=1) # сдвиг по вертикали на -5 пикселей
+        b_shifted = np.roll(b, value_b, axis=1) # сдвиг по горизонтали на 10 пикселей
+
+        merge_rgb = cv2.merge([r_shifted, g_shifted, b_shifted, a])
+        img = merge_rgb
+        update_texture_from_memory()
+
+    def openCVNoise():
+        global img, img_height, img_width, img_channels
+        img.shape = img_height, img_width, img_channels
+        strenght = 1
+
+        noise = np.random.normal(0, strenght, img.shape).astype(np.uint8)
+        img = cv2.add(img, noise)
+        update_texture_from_memory()
+
     def openCVText():
         global img
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -391,7 +429,7 @@ def load_image_by_index(index):
         print("Image idex out of range:", index)
 
 def load_new_image(file_path):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels
 
     if useOpenCV == True:
         loaded_image = opencv_image(file_path)
@@ -407,6 +445,8 @@ def load_new_image(file_path):
         print("1")
     else:
         width, height, channels, data = loaded_image
+
+    img_channels = channels
     img_width, img_height = width, height
     img_aspectratio = width / height
 
@@ -521,7 +561,7 @@ with dpg.texture_registry(show=False):
 
 #main
 with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
-
+#on resize y * 20 too
     with dpg.group(horizontal=True, tag="left_menu_group"):
         with dpg.menu(label="File", tag="menu_btn1"):
             dpg.add_menu_item(label="Save", callback=MenuBar.save_btn)
@@ -534,11 +574,13 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="Rotate -90", callback=OpenCV.openCVRotateM90)
             dpg.add_separator()
             dpg.add_menu_item(label="Grayscale", callback=OpenCV.openCVGrayscale)
+            dpg.add_menu_item(label="Noise", callback=OpenCV.openCVNoise)
+            dpg.add_menu_item(label="RGB Shift", callback=MenuBar.show_edit_rgb_shift)
             dpg.add_separator()
             dpg.add_menu_item(label="Text", callback=MenuBar.show_edit_text)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
-            dpg.add_menu_item(label="0", callback=print_me)
+            dpg.add_menu_item(label="Info", callback=MenuBar.show_info)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp3")
         dpg.add_menu_item(label="Settings", tag="menu_btn5", callback=MenuBar.show_settings)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp4")
@@ -554,6 +596,17 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="[]", callback=Window.maximize_window)
             dpg.add_menu_item(label="x", callback=app_close)
 
+with dpg.window(label="Add text", tag="cv_text", show=False,pos=[(dpg.get_viewport_width()-400)/2, (dpg.get_viewport_height()-250)/2], width=400, height=250):
+    with dpg.group(horizontal=True,tag="edit_text_gp"):
+        dpg.add_input_text(tag="input_text_1")
+        dpg.add_button(label="Apply", callback=OpenCV.openCVText)
+
+with dpg.window(label="RGB Shift", tag="cv_rgb_shift", show=False,pos=[(dpg.get_viewport_width()-400)/2, (dpg.get_viewport_height()-250)/2], width=400, height=250):
+    with dpg.group(tag="edit_rgb_shift"):
+        dpg.add_slider_float(label="Red", tag="rgb_s_1",width=200, min_value=-50, max_value=50, default_value=0)
+        dpg.add_slider_float(label="Green", tag="rgb_s_2",width=200, min_value=-50, max_value=50, default_value=10)
+        dpg.add_slider_float(label="Blue", tag="rgb_s_3", width=200, min_value=-50, max_value=50, default_value=10)
+        dpg.add_button(label="Apply", callback=OpenCV.openCVRGB_Shift)
 
 with dpg.window(label="", tag="main_window", pos=[0,30],
 no_move=True, no_collapse=True,no_close=True,
@@ -586,12 +639,6 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
              with dpg.group(tag="settings_group3"):
                  dpg.add_text("Debug", tag="debug_text")
                  dpg.add_text("Version: 0.07a-win", tag="debug_text1")
-
-
-with dpg.window(label="Add text", tag="cv_text", show=False,pos=[(dpg.get_viewport_width()-400)/2, (dpg.get_viewport_height()-250)/2], width=400, height=250):
-    with dpg.group(horizontal=True,tag="edit_text_gp"):
-        dpg.add_input_text(tag="input_text_1")
-        dpg.add_button(label="Apply", callback=OpenCV.openCVText)
 
 if show_wv == True:
     with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], width=500, height=600):
@@ -730,6 +777,21 @@ with dpg.theme() as non_transparent_theme:
 
         dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (75, 75, 75, 255))
 
+with dpg.theme() as slider_red:
+    with dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (225, 0, 0, 255))
+
+with dpg.theme() as slider_green:
+    with dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 225, 0, 255))
+
+with dpg.theme() as slider_blue:
+    with dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 0, 200, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 0, 225, 255))
+
 if len(sys.argv) > 1:
     open_image_from_start(sys.argv[1])
 else:
@@ -755,6 +817,10 @@ dpg.bind_item_theme("menu_btn6", btn_theme)
 dpg.bind_item_theme("info_window", transparent_theme)
 dpg.bind_item_theme("settings_window", non_transparent_theme)
 dpg.bind_item_theme("cv_text", transparent_theme)
+dpg.bind_item_theme("cv_rgb_shift", transparent_theme)
+dpg.bind_item_theme("rgb_s_1", slider_red)
+dpg.bind_item_theme("rgb_s_2", slider_green)
+dpg.bind_item_theme("rgb_s_3", slider_blue)
 dpg.bind_item_theme("checkbox_1", checkbox_theme)
 dpg.bind_item_theme("settings_group1", checkbox_theme)
 dpg.bind_item_theme("settings_group2", checkbox_theme)
@@ -763,6 +829,7 @@ dpg.bind_item_theme("welcome_window", non_transparent_theme)
 with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_Left, callback=Controls.prev_img)
     dpg.add_key_press_handler(dpg.mvKey_Right, callback=Controls.next_img)
+    dpg.add_key_press_handler(dpg.mvKey_LControl, callback=Controls.clear_img)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
 
 
@@ -775,7 +842,7 @@ on_resize(None, None)
 dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
-dpg.show_viewport() 
+dpg.show_viewport()
 pywinstyles.change_header_color(get_hwnd(), color="#151515")
 dpg.start_dearpygui()
 
