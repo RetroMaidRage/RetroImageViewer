@@ -53,21 +53,26 @@ show_wv = True
 useOpenCV = True
 img_save_num = 0
 
+scale = 0.8645
+scale_mod = 0.05
+
 config = configparser.ConfigParser()
 config['FIRST_LAUNCH'] = {'First_launch': 'True'}
 config['Theme'] = {'isspacing': 'True',
                      'intspacing': '0.0',}
+config['Behaviour'] = {'zoom_mod': '0.2'}
 
 if os.path.isfile(resource_path("settings.ini")):
     print("Config file detected.")
 else:
     print("No config file. Creating...")
-    with open("settings.ini", "w") as configfile:
+    with open(resource_path("settings.ini"), "w") as configfile:
         config.write(configfile)
 
 config.read(resource_path("settings.ini"))
 
 isFirstLaunch = config.getboolean("FIRST_LAUNCH", "First_launch")
+scale_mod = config.getfloat("Behaviour", "zoom_mod")
 
 if isFirstLaunch == True:
     print("First launch: ", isFirstLaunch)
@@ -81,9 +86,11 @@ def save_settings():
     config['FIRST_LAUNCH']['First_launch'] = str(isFirstLaunch)
     config['Theme']['isspacing'] = str(settings_ui.spacing)
     config['Theme']['intspacing'] = str(settings_ui.spacing_set)
+    config['Behaviour']['zoom_mod'] = str(scale_mod)
     with open("settings.ini", "w") as f:
         config.write(f)
         print("New settings saved into settings.ini")
+
 
 class Window:
     @staticmethod
@@ -171,6 +178,8 @@ class cb_items:
 class settings_ui:
     spacing = config.getboolean("Theme", "isspacing")
     spacing_set = config.getfloat("Theme", "intspacing")
+    scaling_set = config.getfloat("Behaviour", "zoom_mod")
+
     print(spacing, spacing_set)
     spacing_items = ["sp1", "sp2", "sp3", "sp4"]
 
@@ -195,6 +204,13 @@ class settings_ui:
                 dpg.configure_item(item, width=settings_ui.spacing_set)
 
         save_settings()
+
+    def img_scaling_set(sender, app_data):
+        global scale_mod
+        scale_mod = settings_ui.scaling_set
+        scale_mod = app_data
+        save_settings()
+
 
     def use_opencv():
         global useOpenCV
@@ -222,19 +238,44 @@ class Controls:
             print("Image index: ", current_index)
     #print(img_list[current_index])
 
+    def scaling(s, a):
+        global scale
+        if is_window_open():
+            return
+        if a < 0:
+            scale-=scale_mod
+            scale = max(0.1, scale)
+            print("scale -")
+            image_resize()
+        else:
+            scale+=scale_mod
+            scale = max(0.1, scale)
+            print("scale +")
+            image_resize()
+
 def print_me(sender):
     print(f"Menu Item: {sender}")
+
+def is_window_open():
+    return (
+        dpg.is_item_shown("file_dialog") or
+        dpg.is_item_shown("settings_window") or
+        dpg.is_item_shown("welcome_window")
+    )
 
 def configure_text(file):
     window_width = dpg.get_item_width("info_window")
     window_height = dpg.get_item_height("info_window")
 
-    text_x = (window_width / 2) - 23
+    text_x = (window_width / 3)
     text_y = 30
 
-    file_size = os.path.getsize(file) / 1024
-
-    text_label = (f"""Name: {os.path.basename(file).split(".")[0]}
+    if file is None:
+        print("Image is not opened.")
+        dpg.configure_item("info_text", default_value="Image is not opened", pos=[text_x, text_y+30])
+    else:
+        file_size = os.path.getsize(file) / 1024
+        text_label = (f"""Name: {os.path.basename(file).split(".")[0]}
 Resolution: {img_width}x{img_height}
 Size: {file_size:.0f} KB
 ----------------------
@@ -242,8 +283,7 @@ Image path: '{os.path.abspath(file)}'
 Debug index: {current_index}
 Images found in folder: {len(img_list)}
 Folder: {os.path.dirname(file)}""")
-
-    dpg.configure_item("info_text", default_value=text_label, pos=[5, text_y])
+        dpg.configure_item("info_text", default_value=text_label, pos=[5, text_y])
 
 def configure_image(file, width, height):
     viewport_width = dpg.get_viewport_client_width()
@@ -528,18 +568,19 @@ pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
              dpg.add_text("It's seems this your first time here, it would be better if you visit setting page.", tag="welcome_text")
         dpg.add_button(label="It's here...", width=100, callback=MenuBar.show_settings)
 
-with dpg.window(label="Settings", tag="settings_window", show=True,
+with dpg.window(label="Settings", tag="settings_window", show=False,
 pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
 , width=600, height=800):
         with dpg.group(tag="settings_group"):
              dpg.add_text("Menu panel", tag="settings_text")
              dpg.add_checkbox(label="Use custom decorator", tag="checkbox_1", callback=cb_items.checkbox_cd)
-             with dpg.group(horizontal=True, tag="settings_group1"):
+             with dpg.group(tag="settings_group1"):
                  dpg.add_checkbox(label="Menu spacing", tag="checkbox_2", default_value = settings_ui.spacing, callback=settings_ui.menu_bar_spacing)
                  dpg.add_slider_float(label="Spacing", width=200, min_value=0.00, max_value=400.00, default_value=settings_ui.spacing_set, callback=settings_ui.menu_bar_spacing_set)
              dpg.add_separator()
              with dpg.group(tag="settings_group2"):
                  dpg.add_text("Behaviour", tag="settings_text2")
+                 dpg.add_slider_float(label="Image zoom factor", width=200, min_value=0.0001, max_value=1, default_value=scale_mod, callback=settings_ui.img_scaling_set)
                  dpg.add_checkbox(label="Use OpenCV library\n(Required for image processing).", tag="checkbox_3", default_value = useOpenCV, callback=settings_ui.use_opencv)
              dpg.add_separator()
              with dpg.group(tag="settings_group3"):
@@ -553,7 +594,7 @@ with dpg.window(label="Add text", tag="cv_text", show=False,pos=[(dpg.get_viewpo
         dpg.add_button(label="Apply", callback=OpenCV.openCVText)
 
 if show_wv == True:
-    with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], height=600):
+    with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], width=500, height=600):
         with dpg.group(horizontal=True, tag="info_group"):
             dpg.add_text("hello", tag="info_text")
 
@@ -562,8 +603,8 @@ with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag
     dpg.add_file_extension(".jpg", color=(144, 238, 144, 255))
     dpg.add_file_extension(".png", color=(144, 238, 143, 255))
 
-def on_resize(sender, app_data):
-    global img_aspectratio, loaded_image, image_path
+def image_resize():
+    global img_aspectratio
     viewport_width = dpg.get_viewport_width()
     viewport_height = dpg.get_viewport_height()
 
@@ -575,7 +616,39 @@ def on_resize(sender, app_data):
     aspect_img = img_aspectratio
     aspect_view = available_width / available_height
 
-    scale = 0.8645
+    if aspect_img > aspect_view:
+        img_w = available_width*scale
+        img_h = img_w / aspect_img
+    else:
+        img_h = available_height*scale #добавить в open image
+        img_w = img_h * aspect_img
+
+    x = (viewport_width - img_w) / 2
+    y = (available_height - img_h) / 2 + title_offset
+
+    iw = dpg.get_item_width("main_img")
+    ig = dpg.get_item_height("main_img")
+
+    print(iw,ig,viewport_width,viewport_height)
+
+    dpg.set_item_width("main_window", viewport_width)
+    dpg.set_item_height("main_window", viewport_height*20)
+    dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x,y])
+
+    print("Scale: ", scale)
+
+def on_resize(sender, app_data):
+    global img_aspectratio, loaded_image, image_path, current_img_w, current_img_h, current_img_pos_x, current_img_pos_y, scale
+    viewport_width = dpg.get_viewport_width()
+    viewport_height = dpg.get_viewport_height()
+
+    title_offset = -45
+
+    available_height = viewport_height - title_offset
+    available_width = viewport_width
+
+    aspect_img = img_aspectratio
+    aspect_view = available_width / available_height
 
     if aspect_img > aspect_view:
         img_w = available_width*scale
@@ -690,6 +763,7 @@ dpg.bind_item_theme("welcome_window", non_transparent_theme)
 with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_Left, callback=Controls.prev_img)
     dpg.add_key_press_handler(dpg.mvKey_Right, callback=Controls.next_img)
+    dpg.add_mouse_wheel_handler(callback=Controls.scaling)
 
 
 with dpg.item_handler_registry(tag="inf_resize"):
@@ -701,7 +775,7 @@ on_resize(None, None)
 dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
-dpg.show_viewport() # 50 мс — достаточно
+dpg.show_viewport() 
 pywinstyles.change_header_color(get_hwnd(), color="#151515")
 dpg.start_dearpygui()
 
