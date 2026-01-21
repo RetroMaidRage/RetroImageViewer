@@ -11,4 +11,4 @@ Simple image viewer created in python with [DearPyGUI](https://github.com/hoffst
 It will also contain some image processing features.
 Currently supported only windows versions, however I'll add other systems support.
 ## Version
-0.085a - Basic viewing functions and a few image processing items.
+0.092a - Basic viewing functions, windows, settings and a few image processing items.
