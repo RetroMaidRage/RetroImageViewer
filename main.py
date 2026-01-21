@@ -1,5 +1,7 @@
 import dearpygui.dearpygui as dpg
 import dearpygui_extend as dpge
+from file_browser import FileBrowser
+#from fdialog import FileDialog
 import os
 import sys
 import ctypes
@@ -41,6 +43,7 @@ SW_MAXIMIZE = 3
 SW_SHOWDEFAULT = 10
 
 isMaximized = False
+isMaximized_xd = False
 dragging = False
 
 img_tag = 0
@@ -91,9 +94,18 @@ def save_settings():
     with open("settings.ini", "w") as f:
         config.write(f)
         print("New settings saved into settings.ini")
+
 def show_selected_file(sender, files, cancel_pressed):
 	if not cancel_pressed:
 		dpg.set_value('selected_file', files[0])
+
+def dynamic_img_theme(rgb):
+    color = (int(rgb[0]), int(rgb[1]), int(rgb[2]), 255)
+    with dpg.theme() as dynamic_theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, color)
+
+    dpg.bind_item_theme("main_window", dynamic_theme)
 
 class Window:
     @staticmethod
@@ -118,6 +130,14 @@ class Window:
             else:
                 user32.ShowWindow(hwnd, SW_SHOWDEFAULT)
                 isMaximized = False
+
+    def maximize_window_xd():
+        global isMaximized_xd
+        hwnd = get_hwnd()
+        if hwnd:
+            if not isMaximized_xd:
+                user32.ShowWindow(hwnd, SW_MAXIMIZE)
+                isMaximized_xd = True
 
     def start_drag(sender, app_data):
         global dragging, drag_offset
@@ -167,6 +187,7 @@ class MenuBar:
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog_ext")
+
 
     def show_settings():
         dpg.show_item("settings_window")
@@ -275,7 +296,8 @@ def is_window_open():
     return (
         dpg.is_item_shown("file_dialog") or
         dpg.is_item_shown("settings_window") or
-        dpg.is_item_shown("welcome_window")
+        dpg.is_item_shown("welcome_window") or
+        dpg.is_item_shown("file_dialog_ext")
     )
 
 def configure_text(file):
@@ -321,11 +343,11 @@ def configure_image(file, width, height):
         img_w = img_h * img_aspectratio
 
     x = (viewport_width - img_w) / 2
-    y = window_pos[1] + (viewport_height - img_h) / 2
-
-    dpg.set_item_width("main_window", viewport_width)
-    dpg.set_item_height("main_window", viewport_height)
-    dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y])
+    #y = window_pos[1] + (viewport_height - img_h) / 2
+    y = (viewport_height - img_h) / 2
+    #dpg.set_item_width("main_window", viewport_width)
+    #dpg.set_item_height("main_window", viewport_height)
+    #dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y])
 
     image_data = f"""{file} Resolution:  {str(width)}x{str(height)}"""
     dpg.configure_item("main_window", label=image_data)
@@ -388,6 +410,21 @@ class OpenCV:
         img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
         update_texture_from_memory()
 
+    def avg_color(file_path):
+        src_img = cv2.imread(file_path)
+        average_color_row = np.average(src_img, axis=0)
+        average_color = np.average(average_color_row, axis=0)
+        print(average_color)
+        return average_color
+
+    def main_color():
+        global img
+        small_img = cv2.resize(img, (250, 250))
+        mean_colors = cv2.mean(small_img)[:3]
+        b, g, r = mean_colors
+        print("main",r,g,b)
+        #return main_color
+
     def openCVRGB_Shift():
         global img
 
@@ -431,7 +468,7 @@ def load_image_by_index(index):
         print("Image idex out of range:", index)
 
 def load_new_image(file_path):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels, img_data, img_avg_col
 
     if useOpenCV == True:
         loaded_image = opencv_image(file_path)
@@ -442,14 +479,14 @@ def load_new_image(file_path):
         print("Wrong image/can't load it. "+"Filepath: "+file_path)
         return
 
-    if useOpenCV == True:
-        width, height, channels, data = opencv_image(file_path)
-        print("1")
-    else:
-        width, height, channels, data = loaded_image
 
+    width, height, channels, data = loaded_image
+    img_avg_col = OpenCV.avg_color(file_path)
+    #dynamic_img_theme(img_avg_col)
+    OpenCV.main_color()
     img_channels = channels
     img_width, img_height = width, height
+    img_data = data
     img_aspectratio = width / height
 
     img_tag += 1
@@ -463,9 +500,6 @@ def load_new_image(file_path):
 
     print("Old texture tag: ", old_img_name_tag)
 
-    #if int_img_tag >= img_tag:
-        #dpg.delete_item(old_img_name_tag)
-
     if dpg.does_item_exist(old_img_name_tag):
         dpg.delete_item(old_img_name_tag)
         print(f"Old texture tag: {old_img_name_tag} deleted")
@@ -478,14 +512,18 @@ def load_new_image(file_path):
     dpg.configure_item("main_img", texture_tag=new_img_tag)
     configure_image(file_path, width, height)
     on_resize(None, None)
-
     print(f"""Image: {img_name} | Res: {width}x{height} | Tag: {new_img_tag}""")
 
     configure_text(img_list[current_index])
 
 
-def open_image(sender, app_data):
+def open_image(sender, app_data, cancel):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index
+
+    if cancel:
+        dpg.hide_item("file_dialog_ext")
+        print("FDialog closed.")
+        return
 
     try:
         file_path = app_data[0]
@@ -493,8 +531,8 @@ def open_image(sender, app_data):
         print("No selected items.")
         return
 
-    file_path = app_data[0]
-
+    if cancel:
+        dpg.hide_item("file_dialog_ext")
     if file_path.lower().endswith((".jpg", ".png")):
         dpg.hide_item("file_dialog_ext")
         print(f"Selected {file_path.lower()}")
@@ -582,6 +620,7 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="RGB Shift", callback=MenuBar.show_edit_rgb_shift)
             dpg.add_separator()
             dpg.add_menu_item(label="Text", callback=MenuBar.show_edit_text)
+            #dpg.add_menu_item(label="AVG", callback=get_image_avg_col)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
             dpg.add_menu_item(label="Info", callback=MenuBar.show_info)
@@ -621,7 +660,7 @@ no_bring_to_front_on_focus=True, no_resize=True):
 
 with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
  no_scrollbar=True, no_scroll_with_mouse=True,no_resize=True):
-    dpge.add_file_browser(tag="file_d_ext",
+    FileBrowser(tag="file_d_ext", default_path=os.getcwd(),
         		width=1000,
         		height=600,
         		modal_window =True,
@@ -664,7 +703,7 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
                  dpg.add_text("Version: 0.07a-win", tag="debug_text1")
 
 if show_wv == True:
-    with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], width=500, height=600):
+    with dpg.window(label="Image: Info", show=False, tag="info_window", pos=[0, 200], width=500, height=600):
         with dpg.group(horizontal=True, tag="info_group"):
             dpg.add_text("hello", tag="info_text")
 #ширина окна от ширины текста
@@ -807,9 +846,9 @@ with dpg.theme() as non_transparent_theme:
         dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (70, 70, 70, 255))
         dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 70, 70, 255))
     with dpg.theme_component(dpg.mvSelectable):
-        dpg.add_theme_color(dpg.mvThemeCol_Header, (65, 65, 65, 255))        # выбранный
-        dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (75, 75, 75, 255)) # hover
-        dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (95, 95, 95, 255))   # клик
+        dpg.add_theme_color(dpg.mvThemeCol_Header, (35, 35, 35, 255))        # выбранный
+        dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (45, 45, 45, 255)) # hover
+        dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (65, 65, 65, 255))   # клик
 
 
 
@@ -872,6 +911,7 @@ with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_LControl, callback=Controls.clear_img)
     dpg.add_key_press_handler(dpg.mvKey_Return, callback=Window.maximize_window)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
+    dpg.add_mouse_move_handler(callback=Window.maximize_window_xd)
 
 
 with dpg.item_handler_registry(tag="inf_resize"):
