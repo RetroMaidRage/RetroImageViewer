@@ -1,0 +1,12 @@
+keys = ['mvKey_0', 'mvKey_1', 'mvKey_2', 'mvKey_3', 'mvKey_4', 'mvKey_5', 'mvKey_6', 'mvKey_7', 'mvKey_8', 'mvKey_9', 'mvKey_A', 'mvKey_Add', 'mvKey_Apps', 'mvKey_B', 'mvKey_Back', 'mvKey_Backslash', 'mvKey_Browser_Back', 'mvKey_Browser_Favorites', 'mvKey_Browser_Forward', 'mvKey_Browser_Home', 'mvKey_Browser_Refresh', 'mvKey_Browser_Search', 'mvKey_Browser_Stop', 'mvKey_C', 'mvKey_CapsLock', 'mvKey_Clear', 'mvKey_Close_Brace', 'mvKey_Colon', 'mvKey_Comma', 'mvKey_D', 'mvKey_Decimal', 'mvKey_Delete', 'mvKey_Divide', 'mvKey_Down', 'mvKey_E', 'mvKey_End', 'mvKey_Escape', 'mvKey_Execute', 'mvKey_F', 'mvKey_F1', 'mvKey_F10', 'mvKey_F11', 'mvKey_F12', 'mvKey_F13', 'mvKey_F14', 'mvKey_F15', 'mvKey_F16', 'mvKey_F17', 'mvKey_F18', 'mvKey_F19', 'mvKey_F2', 'mvKey_F20', 'mvKey_F21', 'mvKey_F22', 'mvKey_F23', 'mvKey_F24', 'mvKey_F25', 'mvKey_F3', 'mvKey_F4', 'mvKey_F5', 'mvKey_F6', 'mvKey_F7', 'mvKey_F8', 'mvKey_F9', 'mvKey_G', 'mvKey_H', 'mvKey_Help', 'mvKey_Home', 'mvKey_I', 'mvKey_Insert', 'mvKey_J', 'mvKey_K', 'mvKey_L', 'mvKey_LAlt', 'mvKey_LControl', 'mvKey_LShift', 'mvKey_LWin', 'mvKey_Launch_App1', 'mvKey_Launch_App2', 'mvKey_Launch_Mail', 'mvKey_Launch_Media_Select', 'mvKey_Left', 'mvKey_M', 'mvKey_Media_Next_Track', 'mvKey_Media_Play_Pause', 'mvKey_Media_Prev_Track', 'mvKey_Media_Stop', 'mvKey_Menu', 'mvKey_Minus', 'mvKey_ModAlt', 'mvKey_ModCtrl', 'mvKey_ModDisabled', 'mvKey_ModShift', 'mvKey_ModSuper', 'mvKey_Multiply', 'mvKey_N', 'mvKey_Next', 'mvKey_None', 'mvKey_NumLock', 'mvKey_NumPad0', 'mvKey_NumPad1', 'mvKey_NumPad2', 'mvKey_NumPad3', 'mvKey_NumPad4', 'mvKey_NumPad5', 'mvKey_NumPad6', 'mvKey_NumPad7', 'mvKey_NumPad8', 'mvKey_NumPad9', 'mvKey_NumPadEnter', 'mvKey_NumPadEqual', 'mvKey_O', 'mvKey_Open_Brace', 'mvKey_P', 'mvKey_Pause', 'mvKey_Period', 'mvKey_Plus', 'mvKey_Print', 'mvKey_Prior', 'mvKey_Q', 'mvKey_Quote', 'mvKey_R', 'mvKey_RAlt', 'mvKey_RControl', 'mvKey_RShift', 'mvKey_RWin', 'mvKey_Return', 'mvKey_Right', 'mvKey_S', 'mvKey_ScrollLock', 'mvKey_Select', 'mvKey_Slash', 'mvKey_Sleep', 'mvKey_Spacebar', 'mvKey_Subtract', 'mvKey_T', 'mvKey_Tab', 'mvKey_Tilde', 'mvKey_U', 'mvKey_Up', 'mvKey_V', 'mvKey_Volume_Down', 'mvKey_Volume_Mute', 'mvKey_Volume_Up', 'mvKey_W', 'mvKey_X', 'mvKey_Y', 'mvKey_Z']
+
+import dearpygui.dearpygui as dpg
+
+all_keys = [attr for attr in dir(dpg) if attr.startswith("mvKey_")]
+
+keys_list = []
+
+for key in all_keys:
+    keys_list.append(key)
+
+print(keys_list)

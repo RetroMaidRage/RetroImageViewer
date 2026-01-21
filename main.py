@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 import dearpygui_extend as dpge
 from file_browser import FileBrowser
+from keys import keys
 #from fdialog import FileDialog
 import os
 import sys
@@ -100,7 +101,7 @@ def show_selected_file(sender, files, cancel_pressed):
 		dpg.set_value('selected_file', files[0])
 
 def dynamic_img_theme(rgb):
-    color = (int(rgb[0]), int(rgb[1]), int(rgb[2]), 255)
+    color = (int(rgb[2]), int(rgb[1]), int(rgb[1]), 255)
     with dpg.theme() as dynamic_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, color)
@@ -251,8 +252,9 @@ current_index = 0
 img_list = []
 
 class Controls:
+    is_info_showed = False
+    w_pressed = False
     @staticmethod
-
     def prev_img():
         global current_index
         if current_index > 0:
@@ -270,9 +272,19 @@ class Controls:
 
     def clear_img():
         global current_index
-        if dpg.is_key_down(dpg.mvKey_Q):
+        if dpg.is_key_pressed(dpg.mvKey_Q):
             load_new_image(img_list[current_index])
             print("Image reloaded.")
+
+    def alt_keys():
+        w_pressed = dpg.is_key_down(dpg.mvKey_W)
+        if w_pressed and not Controls.w_was_pressed:
+            Controls.is_info_showed = not Controls.is_info_showed
+            if Controls.is_info_showed:
+                dpg.show_item("info_window")
+            else:
+                dpg.hide_item("info_window")
+        Controls.w_was_pressed = w_pressed
 
     def scaling(s, a):
         global scale
@@ -698,7 +710,23 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
                  dpg.add_slider_float(label="Image zoom factor", width=200, min_value=0.0001, max_value=1, default_value=scale_mod, callback=settings_ui.img_scaling_set)
                  dpg.add_checkbox(label="Use OpenCV library\n(Required for image processing).", tag="checkbox_3", default_value = useOpenCV, callback=settings_ui.use_opencv)
              dpg.add_separator()
+             with dpg.group(tag="settings_group_theme"):
+                 dpg.add_text("Theme")
+             dpg.add_separator()
              with dpg.group(tag="settings_group3"):
+                 dpg.add_text("Keybindings", tag="keys_text")
+                 with dpg.group(horizontal=True):
+                     dpg.add_combo(keys, label="+", default_value="mvKey_LControl", tag="all_keys", width =200)
+                     dpg.add_combo(keys, label="Reset image", default_value="mvKey_Q", tag="all_keys1",  width =200)
+                 with dpg.group(horizontal=True):
+                     dpg.add_combo(keys, label="+", default_value="mvKey_LAlt", tag="all_keys2", width =200)
+                     dpg.add_combo(keys, label="Info Window", default_value="mvKey_W", tag="all_keys3",  width =200)
+
+                 dpg.add_combo(keys, label="Maximize", default_value="mvKey_Enter", tag="all_keys4", width =200)
+                 dpg.add_combo(keys, label="Prev", default_value="mvKey_Left", tag="all_keys6",  width =200)
+                 dpg.add_combo(keys, label="Next", default_value="mvKey_Right", tag="all_keys5",  width =200)
+             dpg.add_separator()
+             with dpg.group(tag="settings_group4"):
                  dpg.add_text("Debug", tag="debug_text")
                  dpg.add_text("Version: 0.07a-win", tag="debug_text1")
 
@@ -838,7 +866,8 @@ with dpg.theme() as non_transparent_theme:
         dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (75, 75, 75, 255))
         dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (95, 95, 95, 255))
         dpg.add_theme_color(dpg.mvThemeCol_TabActive, (95, 95, 95, 255))
-
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (220, 220, 220, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (255, 255, 255, 255))
         dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (75, 75, 75, 255))
 
         dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (220, 220, 220, 255))
@@ -909,6 +938,7 @@ with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_Left, callback=Controls.prev_img)
     dpg.add_key_press_handler(dpg.mvKey_Right, callback=Controls.next_img)
     dpg.add_key_press_handler(dpg.mvKey_LControl, callback=Controls.clear_img)
+    dpg.add_key_press_handler(dpg.mvKey_LAlt, callback=Controls.alt_keys)
     dpg.add_key_press_handler(dpg.mvKey_Return, callback=Window.maximize_window)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
     dpg.add_mouse_move_handler(callback=Window.maximize_window_xd)
@@ -917,7 +947,6 @@ with dpg.handler_registry():
 with dpg.item_handler_registry(tag="inf_resize"):
     dpg.add_item_resize_handler(callback=lambda s,a: configure_text(image_path))
 dpg.bind_item_handler_registry("info_window", "inf_resize")
-
 dpg.set_viewport_resize_callback(on_resize)
 on_resize(None, None)
 dpg.set_viewport_decorated(True)
