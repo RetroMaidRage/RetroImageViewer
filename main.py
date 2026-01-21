@@ -91,7 +91,9 @@ def save_settings():
     with open("settings.ini", "w") as f:
         config.write(f)
         print("New settings saved into settings.ini")
-
+def show_selected_file(sender, files, cancel_pressed):
+	if not cancel_pressed:
+		dpg.set_value('selected_file', files[0])
 
 class Window:
     @staticmethod
@@ -164,7 +166,7 @@ class MenuBar:
         dpg.show_item("cv_text")
 
     def show_dialogue(sender):
-        dpg.show_item("file_dialog")
+        dpg.show_item("file_dialog_ext")
 
     def show_settings():
         dpg.show_item("settings_window")
@@ -484,26 +486,28 @@ def load_new_image(file_path):
 
 def open_image(sender, app_data):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index
-    file_path = app_data["file_path_name"]
-    found = False
-    folder = os.path.dirname(file_path)
-    if file_path.endswith(".*"):
-        folder = os.path.dirname(file_path)
-        print("Dir: "+file_path)
-        name = os.path.splitext(os.path.basename(file_path))[0]
-        for file in os.listdir(folder):
-            if file.startswith(name) and file.lower().endswith((".jpg", ".png")):
-                file_path = os.path.join(folder, file)
-                print("Opened: "+"Filepath: "+file_path)
-                found = True
-                break
 
-        if not found:
-            print("Can't open this file. "+"Filepath: "+file_path)
-            return
+    try:
+        file_path = app_data[0]
+    except IndexError:
+        print("No selected items.")
+        return
+
+    file_path = app_data[0]
+
+    if file_path.lower().endswith((".jpg", ".png")):
+        dpg.hide_item("file_dialog_ext")
+        print(f"Selected {file_path.lower()}")
+    else:
+        print(f"Not valid file type. {file_path.lower()}")
+        return
+
+    folder = os.path.dirname(file_path)
+    name = os.path.splitext(os.path.basename(file_path))[0]
     img_name=name
     current_image = os.path.abspath(file_path)
     current_folder = folder
+
 
     img_list = sorted([
         os.path.abspath(os.path.join(folder, f))
@@ -614,6 +618,25 @@ no_scrollbar=False, no_scroll_with_mouse=False,
 no_bring_to_front_on_focus=True, no_resize=True):
     dpg.add_image("texture_tag", tag='main_img')
 
+
+with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
+ no_scrollbar=True, no_scroll_with_mouse=True,no_resize=True):
+    dpge.add_file_browser(tag="file_d_ext",
+        		width=1000,
+        		height=600,
+        		modal_window =True,
+        		show_ok_cancel=True,
+        		allow_multi_selection=False,
+        		collapse_sequences=True,
+                add_filename_tooltip=True,
+                icon_size=2,
+        		callback=open_image)
+#    dpg.add_input_text(
+    #tag="selected_file",
+#    label="",
+#    width=400, pos=[0,600]
+#    )
+
 with dpg.window(label="Welcome!", show=isFirstLaunch, tag="welcome_window",
 pos=[(dpg.get_viewport_width()-800)/2, (dpg.get_viewport_height()-800)/2]
 , width=800, height=800):
@@ -644,7 +667,7 @@ if show_wv == True:
     with dpg.window(label="Image: Info", tag="info_window", pos=[0, 200], width=500, height=600):
         with dpg.group(horizontal=True, tag="info_group"):
             dpg.add_text("hello", tag="info_text")
-
+#ширина окна от ширины текста
 with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag="file_dialog", width=screen_w//2, height=screen_h//2):
     dpg.add_file_extension(".*", color=(255, 255, 255, 255))
     dpg.add_file_extension(".jpg", color=(144, 238, 144, 255))
@@ -774,8 +797,21 @@ with dpg.theme() as non_transparent_theme:
         dpg.add_theme_style(dpg.mvStyleVar_WindowTitleAlign, 0.5, 0.5)
         dpg.add_theme_color(dpg.mvThemeCol_Button, (65, 65, 65, 255))
         dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (75, 75, 75, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (95, 95, 95, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_TabActive, (95, 95, 95, 255))
 
         dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (75, 75, 75, 255))
+
+        dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (220, 220, 220, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (65, 65, 65, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (70, 70, 70, 255))
+        dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 70, 70, 255))
+    with dpg.theme_component(dpg.mvSelectable):
+        dpg.add_theme_color(dpg.mvThemeCol_Header, (65, 65, 65, 255))        # выбранный
+        dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (75, 75, 75, 255)) # hover
+        dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (95, 95, 95, 255))   # клик
+
+
 
 with dpg.theme() as slider_red:
     with dpg.theme_component(dpg.mvAll):
@@ -791,6 +827,9 @@ with dpg.theme() as slider_blue:
     with dpg.theme_component(dpg.mvAll):
         dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 0, 200, 255))
         dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 0, 225, 255))
+
+
+
 
 if len(sys.argv) > 1:
     open_image_from_start(sys.argv[1])
@@ -825,11 +864,13 @@ dpg.bind_item_theme("checkbox_1", checkbox_theme)
 dpg.bind_item_theme("settings_group1", checkbox_theme)
 dpg.bind_item_theme("settings_group2", checkbox_theme)
 dpg.bind_item_theme("welcome_window", non_transparent_theme)
+dpg.bind_item_theme("file_dialog_ext", non_transparent_theme)
 
 with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_Left, callback=Controls.prev_img)
     dpg.add_key_press_handler(dpg.mvKey_Right, callback=Controls.next_img)
     dpg.add_key_press_handler(dpg.mvKey_LControl, callback=Controls.clear_img)
+    dpg.add_key_press_handler(dpg.mvKey_Return, callback=Window.maximize_window)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
 
 
