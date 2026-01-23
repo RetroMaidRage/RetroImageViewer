@@ -61,10 +61,13 @@ img_channels = 0
 scale = 0.8645
 scale_mod = 0.05
 
+dynamic_theming = True
+
 config = configparser.ConfigParser()
 config['FIRST_LAUNCH'] = {'First_launch': 'True'}
-config['Theme'] = {'isspacing': 'True',
+config['UI'] =    {'isspacing': 'True',
                      'intspacing': '0.0',}
+config['Theme'] =  { 'dynamic_theme_image': 'True'}
 config['Behaviour'] = {'zoom_mod': '0.2'}
 
 if os.path.isfile(resource_path("settings.ini")):
@@ -89,8 +92,9 @@ print("Screen resolution:",screen_w,"x",screen_h)
 
 def save_settings():
     config['FIRST_LAUNCH']['First_launch'] = str(isFirstLaunch)
-    config['Theme']['isspacing'] = str(settings_ui.spacing)
-    config['Theme']['intspacing'] = str(settings_ui.spacing_set)
+    config['UI']['isspacing'] = str(settings_ui.spacing)
+    config['UI']['intspacing'] = str(settings_ui.spacing_set)
+    config['Theme']['dynamic_theme_image'] = str(Theme.dynamic_theming)
     config['Behaviour']['zoom_mod'] = str(scale_mod)
     with open("settings.ini", "w") as f:
         config.write(f)
@@ -105,6 +109,8 @@ def dynamic_img_theme(rgb):
     with dpg.theme() as dynamic_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, color)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, color)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (color[0]-15,color[1]-15,color[2]-15))
 
     dpg.bind_item_theme("main_window", dynamic_theme)
 
@@ -207,8 +213,8 @@ class cb_items:
         print("There no config now. Checkbox: "+str(show_wv))
 
 class settings_ui:
-    spacing = config.getboolean("Theme", "isspacing")
-    spacing_set = config.getfloat("Theme", "intspacing")
+    spacing = config.getboolean("UI", "isspacing")
+    spacing_set = config.getfloat("UI", "intspacing")
     scaling_set = config.getfloat("Behaviour", "zoom_mod")
 
     print(spacing, spacing_set)
@@ -247,6 +253,20 @@ class settings_ui:
         global useOpenCV
         useOpenCV = not useOpenCV
         save_settings()
+
+class Theme():
+    dynamic_theming = config.getboolean("Theme", "dynamic_theme_image")
+    @staticmethod
+
+    def dynamic_image_theme():
+        global dynamic_theming
+        Theme.dynamic_theming = not Theme.dynamic_theming
+        print("Dynamic theme: ", Theme.dynamic_theming)
+        if Theme.dynamic_theming == False:
+            dpg.bind_item_theme("main_window", menu_theme)
+        save_settings()
+
+
 
 current_index = 0
 img_list = []
@@ -481,7 +501,7 @@ def load_image_by_index(index):
 
 def load_new_image(file_path):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels, img_data, img_avg_col
-
+    #загружать картинку уже с измененым положением
     if useOpenCV == True:
         loaded_image = opencv_image(file_path)
     else:
@@ -491,15 +511,33 @@ def load_new_image(file_path):
         print("Wrong image/can't load it. "+"Filepath: "+file_path)
         return
 
-
     width, height, channels, data = loaded_image
-    img_avg_col = OpenCV.avg_color(file_path)
-    #dynamic_img_theme(img_avg_col)
-    OpenCV.main_color()
+
     img_channels = channels
     img_width, img_height = width, height
-    img_data = data
     img_aspectratio = width / height
+    img_data = data
+
+    viewport_width = dpg.get_viewport_width()
+    viewport_height = dpg.get_viewport_height()
+
+    title_offset = -45
+
+    available_height = viewport_height - title_offset
+    available_width = viewport_width
+
+    aspect_img = img_aspectratio
+    aspect_view = available_width / available_height
+
+    if aspect_img > aspect_view:
+        img_w = available_width*scale
+        img_h = img_w / aspect_img
+    else:
+        img_h = available_height*scale #добавить в open image
+        img_w = img_h * aspect_img
+
+    x = (viewport_width - img_w) / 2
+    y = (available_height - img_h) / 2 + title_offset
 
     img_tag += 1
 
@@ -518,12 +556,20 @@ def load_new_image(file_path):
     else:
         print(f"Old texture tag: {old_img_name_tag} not found")
 
+    if Theme.dynamic_theming == True:
+        img_avg_col = OpenCV.avg_color(file_path)
+
     with dpg.texture_registry(show=False):
         dpg.add_static_texture(width=width, height=height, default_value=data, tag=new_img_tag)
+        dpg.configure_item("main_img", texture_tag=new_img_tag,  pos=[x,y], width=img_w, height=img_h)
 
-    dpg.configure_item("main_img", texture_tag=new_img_tag)
+    if Theme.dynamic_theming == True:
+        dynamic_img_theme(img_avg_col)
+
     configure_image(file_path, width, height)
-    on_resize(None, None)
+    #OpenCV.main_color()
+
+    #on_resize(None, None)
     print(f"""Image: {img_name} | Res: {width}x{height} | Tag: {new_img_tag}""")
 
     configure_text(img_list[current_index])
@@ -669,7 +715,6 @@ no_scrollbar=False, no_scroll_with_mouse=False,
 no_bring_to_front_on_focus=True, no_resize=True):
     dpg.add_image("texture_tag", tag='main_img')
 
-
 with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
  no_scrollbar=True, no_scroll_with_mouse=True,no_resize=True):
     FileBrowser(tag="file_d_ext", default_path=os.getcwd(),
@@ -712,6 +757,7 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
              dpg.add_separator()
              with dpg.group(tag="settings_group_theme"):
                  dpg.add_text("Theme")
+                 dpg.add_checkbox(label="Dynamic theme", tag="checkbox_5", default_value = Theme.dynamic_theming, callback=Theme.dynamic_image_theme)
              dpg.add_separator()
              with dpg.group(tag="settings_group3"):
                  dpg.add_text("Keybindings", tag="keys_text")
