@@ -105,14 +105,19 @@ def show_selected_file(sender, files, cancel_pressed):
 		dpg.set_value('selected_file', files[0])
 
 def dynamic_img_theme(rgb):
-    color = (int(rgb[2]), int(rgb[1]), int(rgb[1]), 255)
+    color = (int(rgb[2]), int(rgb[1]), int(rgb[0]), 255) #if intese last 1
     with dpg.theme() as dynamic_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, color)
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, color)
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (color[0]-15,color[1]-15,color[2]-15))
+            #dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (color[0]-25,color[1]-25,color[2]-25))
+            #dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (color[0]-25,color[1]-25,color[2]-25))
+            #dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, (color[0]-25,color[1]-25,color[2]-25))
+            #dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (color[0],color[1],color[2]))
+            #dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,  (color[0],color[1],color[2]))
 
     dpg.bind_item_theme("main_window", dynamic_theme)
+    #dpg.bind_item_theme("menu_bar", dynamic_theme)
+    #dpg.bind_theme(dynamic_theme)
 
 class Window:
     @staticmethod
@@ -189,12 +194,14 @@ class MenuBar:
     def show_edit_rgb_shift():
         dpg.show_item("cv_rgb_shift")
 
+    def show_edge_detection():
+        dpg.show_item("cv_edge_d")
+
     def show_edit_text():
         dpg.show_item("cv_text")
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog_ext")
-
 
     def show_settings():
         dpg.show_item("settings_window")
@@ -274,6 +281,7 @@ img_list = []
 class Controls:
     is_info_showed = False
     w_pressed = False
+    q_was_pressed = False
     @staticmethod
     def prev_img():
         global current_index
@@ -292,9 +300,11 @@ class Controls:
 
     def clear_img():
         global current_index
-        if dpg.is_key_pressed(dpg.mvKey_Q):
+        q_pressed = dpg.is_key_down(dpg.mvKey_Q)
+        if q_pressed and not Controls.q_was_pressed:
             load_new_image(img_list[current_index])
             print("Image reloaded.")
+        Controls.q_was_pressed = q_pressed
 
     def alt_keys():
         w_pressed = dpg.is_key_down(dpg.mvKey_W)
@@ -320,6 +330,114 @@ class Controls:
             scale = max(0.1, scale)
             print("scale +")
             image_resize()
+
+
+class OpenCV:
+    @staticmethod
+
+    def openCVRotate90():
+        global img
+        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        update_texture_from_memory()
+
+    def openCVRotateM90():
+        global img
+        img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        update_texture_from_memory()
+
+    def openCVGrayscale():
+        global img
+        grayscale = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
+        img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
+        print("Grayscale applied.")
+        update_texture_from_memory()
+
+    def avg_color(file_path):
+        step = 8
+        src_img = cv2.imread(file_path)
+        sampled = src_img[::step, ::step]
+        average_color_row = np.average(sampled, axis=0)
+        average_color = np.average(average_color_row, axis=0)
+        print(average_color)
+        return average_color
+
+    def main_color():
+        global img
+        small_img = cv2.resize(img, (250, 250))
+        mean_colors = cv2.mean(small_img)[:3]
+        b, g, r = mean_colors
+        print("main",r,g,b)
+        #return main_color
+
+    def openCVRGB_Shift():
+        global img
+
+        r,g,b,a = cv2.split(img)
+
+        value_r = dpg.get_value("rgb_s_1") #r
+        value_g = dpg.get_value("rgb_s_2") #g
+        value_b = dpg.get_value("rgb_s_3") #b
+        r_shifted = np.roll(r, value_r, axis=1)  # сдвиг по горизонтали на 5 пикселей
+        g_shifted = np.roll(g, value_g, axis=1) # сдвиг по вертикали на -5 пикселей
+        b_shifted = np.roll(b, value_b, axis=1) # сдвиг по горизонтали на 10 пикселей
+
+        merge_rgb = cv2.merge([r_shifted, g_shifted, b_shifted, a])
+        img = merge_rgb
+        print("RGB Shift applied.")
+        update_texture_from_memory()
+
+    def openCVNoise():
+        global img, img_height, img_width, img_channels
+        img.shape = img_height, img_width, img_channels
+        strenght = 1
+        noise = np.random.normal(0, strenght, img.shape).astype(np.uint8)
+        #noise = cv2.GaussianBlur(noise, (0, 0), 0.8)
+        img = cv2.add(img, noise)
+        print("Noise applied.")
+        update_texture_from_memory()
+
+    def openCVEdge_Detection(sener, app_data, user_data):
+        global img
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+
+        if user_data == "canny":
+            canny_edges = cv2.Canny(gray, 150, 250)
+            edges = canny_edges
+        elif user_data == "sobel":
+            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)  # Horizontal edges
+            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)  # Vertical edges
+
+            gradient_magnitude = cv2.magnitude(sobelx, sobely)
+            sobel_edges = cv2.convertScaleAbs(gradient_magnitude)
+
+            edges = sobel_edges
+        elif user_data == "laplacian":
+            lap = cv2.Laplacian(gray, cv2.CV_64F)
+
+            laplacian_edges = cv2.convertScaleAbs(lap)  #  uint8 grayscale
+            edges = laplacian_edges
+        img = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGRA)
+        OpenCV.openCVGaussian_Blur()
+        print("Edge detection applied: ", user_data)
+        update_texture_from_memory()
+
+    def openCVGaussian_Blur():
+        global img
+        img = cv2.GaussianBlur(img, (5, 5), 1.4)
+        print("Gaussian Blur applied: ")
+        update_texture_from_memory()
+
+
+    def openCVText():
+        global img
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text = dpg.get_value("input_text_1")
+        cv2.putText(img, text, (0, 50), font, 3, (255, 255, 255), 5)
+        print("Text added: ", text)
+        update_texture_from_memory()
+
+
 
 def print_me(sender):
     print(f"Menu Item: {sender}")
@@ -421,74 +539,6 @@ def update_texture_from_memory():
     loaded_image = (img_width, img_height, channels, data)
 
     on_resize(None, None)
-
-
-class OpenCV:
-    @staticmethod
-
-    def openCVRotate90():
-        global img
-        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-        update_texture_from_memory()
-
-    def openCVRotateM90():
-        global img
-        img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        update_texture_from_memory()
-
-    def openCVGrayscale():
-        global img
-        grayscale = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
-        img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
-        update_texture_from_memory()
-
-    def avg_color(file_path):
-        src_img = cv2.imread(file_path)
-        average_color_row = np.average(src_img, axis=0)
-        average_color = np.average(average_color_row, axis=0)
-        print(average_color)
-        return average_color
-
-    def main_color():
-        global img
-        small_img = cv2.resize(img, (250, 250))
-        mean_colors = cv2.mean(small_img)[:3]
-        b, g, r = mean_colors
-        print("main",r,g,b)
-        #return main_color
-
-    def openCVRGB_Shift():
-        global img
-
-        r,g,b,a = cv2.split(img)
-
-        value_r = dpg.get_value("rgb_s_1") #r
-        value_g = dpg.get_value("rgb_s_2") #g
-        value_b = dpg.get_value("rgb_s_3") #b
-        r_shifted = np.roll(r, value_r, axis=1)  # сдвиг по горизонтали на 5 пикселей
-        g_shifted = np.roll(g, value_g, axis=1) # сдвиг по вертикали на -5 пикселей
-        b_shifted = np.roll(b, value_b, axis=1) # сдвиг по горизонтали на 10 пикселей
-
-        merge_rgb = cv2.merge([r_shifted, g_shifted, b_shifted, a])
-        img = merge_rgb
-        update_texture_from_memory()
-
-    def openCVNoise():
-        global img, img_height, img_width, img_channels
-        img.shape = img_height, img_width, img_channels
-        strenght = 1
-
-        noise = np.random.normal(0, strenght, img.shape).astype(np.uint8)
-        img = cv2.add(img, noise)
-        update_texture_from_memory()
-
-    def openCVText():
-        global img
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        text = dpg.get_value("input_text_1")
-        cv2.putText(img, text, (0, 50), font, 3, (255, 255, 255), 5)
-        update_texture_from_memory()
-
 
 def load_image_by_index(index):
     global current_index
@@ -644,7 +694,6 @@ def open_image_from_start(file_path):
     print("index", current_index)
 
     image_path = file_path
-
     load_new_image(img_list[current_index])
 
 
@@ -674,8 +723,10 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="Rotate -90", callback=OpenCV.openCVRotateM90)
             dpg.add_separator()
             dpg.add_menu_item(label="Grayscale", callback=OpenCV.openCVGrayscale)
-            dpg.add_menu_item(label="Noise", callback=OpenCV.openCVNoise)
             dpg.add_menu_item(label="RGB Shift", callback=MenuBar.show_edit_rgb_shift)
+            dpg.add_menu_item(label="Noise", callback=OpenCV.openCVNoise)
+            dpg.add_separator()
+            dpg.add_menu_item(label="Edge Detection", callback=MenuBar.show_edge_detection)
             dpg.add_separator()
             dpg.add_menu_item(label="Text", callback=MenuBar.show_edit_text)
             #dpg.add_menu_item(label="AVG", callback=get_image_avg_col)
@@ -701,6 +752,12 @@ with dpg.window(label="Add text", tag="cv_text", show=False,pos=[(dpg.get_viewpo
     with dpg.group(horizontal=True,tag="edit_text_gp"):
         dpg.add_input_text(tag="input_text_1")
         dpg.add_button(label="Apply", callback=OpenCV.openCVText)
+
+with dpg.window(label="Edge detection", tag="cv_edge_d", show=False,pos=[(dpg.get_viewport_width()-400)/2, (dpg.get_viewport_height()-250)/2], width=400, height=250):
+    with dpg.group(horizontal=True):
+        dpg.add_button(label="Sobel", user_data="sobel", callback=OpenCV.openCVEdge_Detection)
+        dpg.add_button(label="Laplacian", user_data="laplacian", callback=OpenCV.openCVEdge_Detection)
+        dpg.add_button(label="Canny", user_data="canny", callback=OpenCV.openCVEdge_Detection)
 
 with dpg.window(label="RGB Shift", tag="cv_rgb_shift", show=False,pos=[(dpg.get_viewport_width()-400)/2, (dpg.get_viewport_height()-250)/2], width=400, height=250):
     with dpg.group(tag="edit_rgb_shift"):
@@ -971,6 +1028,7 @@ dpg.bind_item_theme("info_window", transparent_theme)
 dpg.bind_item_theme("settings_window", non_transparent_theme)
 dpg.bind_item_theme("cv_text", transparent_theme)
 dpg.bind_item_theme("cv_rgb_shift", transparent_theme)
+dpg.bind_item_theme("cv_edge_d", transparent_theme)
 dpg.bind_item_theme("rgb_s_1", slider_red)
 dpg.bind_item_theme("rgb_s_2", slider_green)
 dpg.bind_item_theme("rgb_s_3", slider_blue)
@@ -999,6 +1057,7 @@ dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
 dpg.show_viewport()
+print(dpg.get_item_height("menu_bar"), "- Menu bar height")
 pywinstyles.change_header_color(get_hwnd(), color="#151515")
 dpg.start_dearpygui()
 
