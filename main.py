@@ -58,9 +58,9 @@ show_wv = True
 useOpenCV = True
 img_save_num = 0
 img_channels = 0
-scale = 0.8645
+scale = 0.8675 #0.8645
 scale_mod = 0.05
-
+title_offset = -45
 dynamic_theming = True
 
 config = configparser.ConfigParser()
@@ -105,19 +105,36 @@ def show_selected_file(sender, files, cancel_pressed):
 		dpg.set_value('selected_file', files[0])
 
 def dynamic_img_theme(rgb):
-    color = (int(rgb[2]), int(rgb[1]), int(rgb[0]), 255) #if intese last 1
+    color = rgb
+    color = bgr2rgb(color)
     with dpg.theme() as dynamic_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, color)
-            #dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (color[0]-25,color[1]-25,color[2]-25))
-            #dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (color[0]-25,color[1]-25,color[2]-25))
-            #dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, (color[0]-25,color[1]-25,color[2]-25))
-            #dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (color[0],color[1],color[2]))
-            #dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,  (color[0],color[1],color[2]))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (color[0]-25,color[1]-25,color[2]-25))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (color[0]-25,color[1]-25,color[2]-25))
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (color[0]-35,color[1]-35,color[2]-35))
+            dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, (color[0]-25,color[1]-25,color[2]-25))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (color[0],color[1],color[2]))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,  (color[0],color[1],color[2]))
+            dpg.add_theme_style(dpg.mvStyleVar_WindowTitleAlign, 0.5, 0.5)
+            img_avg_col2 = (img_avg_col[0]-35,img_avg_col[1]-35,img_avg_col[2]-35)
+            pywinstyles.change_header_color(get_hwnd(), color=rgb2hex(img_avg_col2))
 
-    dpg.bind_item_theme("main_window", dynamic_theme)
-    #dpg.bind_item_theme("menu_bar", dynamic_theme)
-    #dpg.bind_theme(dynamic_theme)
+    dpg.bind_item_theme("main_window", dynamic_theme) #создавать мини окна от размера этого, а не от вьюпорта или экрана
+    dpg.bind_item_theme("menu_bar", dynamic_theme)
+    dpg.bind_theme(dynamic_theme)
+
+def bgr2rgb(color):
+    rgb_color = int(color[2]), int(color[1]), int(color[0])
+    return rgb_color
+
+def rgb2hex(color):
+    color = bgr2rgb(color)
+    r = max(0, min(255, int(color[0])))
+    g = max(0, min(255, int(color[1])))
+    b = max(0, min(255, int(color[2])))
+    return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
 
 class Window:
     @staticmethod
@@ -270,7 +287,11 @@ class Theme():
         Theme.dynamic_theming = not Theme.dynamic_theming
         print("Dynamic theme: ", Theme.dynamic_theming)
         if Theme.dynamic_theming == False:
-            dpg.bind_item_theme("main_window", menu_theme)
+            dpg.bind_item_theme("main_window", menu_theme) #создавать мини окна от размера этого, а не от вьюпорта или экрана
+            dpg.bind_item_theme("menu_bar", bar_theme)
+            dpg.bind_theme(menu_theme)
+            pywinstyles.change_header_color(get_hwnd(), color="#151515")
+            #рамка окна тоже
         save_settings()
 
 
@@ -398,12 +419,12 @@ class OpenCV:
 
     def openCVEdge_Detection(sener, app_data, user_data):
         global img
-
         gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
 
         if user_data == "canny":
             canny_edges = cv2.Canny(gray, 150, 250)
             edges = canny_edges
+
         elif user_data == "sobel":
             sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)  # Horizontal edges
             sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)  # Vertical edges
@@ -412,13 +433,15 @@ class OpenCV:
             sobel_edges = cv2.convertScaleAbs(gradient_magnitude)
 
             edges = sobel_edges
+
         elif user_data == "laplacian":
             lap = cv2.Laplacian(gray, cv2.CV_64F)
 
             laplacian_edges = cv2.convertScaleAbs(lap)  #  uint8 grayscale
             edges = laplacian_edges
+
         img = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGRA)
-        OpenCV.openCVGaussian_Blur()
+        #OpenCV.openCVGaussian_Blur()
         print("Edge detection applied: ", user_data)
         update_texture_from_memory()
 
@@ -848,8 +871,6 @@ def image_resize():
     viewport_width = dpg.get_viewport_width()
     viewport_height = dpg.get_viewport_height()
 
-    title_offset = -45
-
     available_height = viewport_height - title_offset
     available_width = viewport_width
 
@@ -881,8 +902,6 @@ def on_resize(sender, app_data):
     global img_aspectratio, loaded_image, image_path, current_img_w, current_img_h, current_img_pos_x, current_img_pos_y, scale
     viewport_width = dpg.get_viewport_width()
     viewport_height = dpg.get_viewport_height()
-
-    title_offset = -45
 
     available_height = viewport_height - title_offset
     available_width = viewport_width
@@ -1038,6 +1057,7 @@ dpg.bind_item_theme("settings_group2", checkbox_theme)
 dpg.bind_item_theme("welcome_window", non_transparent_theme)
 dpg.bind_item_theme("file_dialog_ext", non_transparent_theme)
 
+
 with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_Left, callback=Controls.prev_img)
     dpg.add_key_press_handler(dpg.mvKey_Right, callback=Controls.next_img)
@@ -1059,6 +1079,10 @@ dpg.setup_dearpygui()
 dpg.show_viewport()
 print(dpg.get_item_height("menu_bar"), "- Menu bar height")
 pywinstyles.change_header_color(get_hwnd(), color="#151515")
+
+if Theme.dynamic_theming == True:
+    dynamic_img_theme(img_avg_col)
+
 dpg.start_dearpygui()
 
 dpg.destroy_context()
