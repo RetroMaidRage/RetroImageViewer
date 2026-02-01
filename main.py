@@ -1,8 +1,10 @@
 import dearpygui.dearpygui as dpg
 import dearpygui_extend as dpge
 from file_browser import FileBrowser
+
 from keys import keys
-#from fdialog import FileDialog
+from tk_file_dialog import CreateFileDialog_Open, CreateFileDialog_SaveToFolder
+
 import os
 import sys
 import ctypes
@@ -19,7 +21,6 @@ def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
-
 
 user32 = ctypes.windll.user32
 
@@ -124,6 +125,9 @@ def dynamic_img_theme(rgb):
     dpg.bind_item_theme("menu_bar", dynamic_theme)
     dpg.bind_theme(dynamic_theme)
 
+small_app_icon = resource_path("icons/16_ico_n.ico")
+large_app_icon = resource_path("icons/256_ico_n.ico")
+
 def bgr2rgb(color):
     rgb_color = int(color[2]), int(color[1]), int(color[0])
     return rgb_color
@@ -134,7 +138,6 @@ def rgb2hex(color):
     g = max(0, min(255, int(color[1])))
     b = max(0, min(255, int(color[2])))
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
-
 
 class Window:
     @staticmethod
@@ -205,8 +208,12 @@ class MenuBar:
         print(f"Image saved in output/{image_name}.")
 
     def save_as_btn():
-        user32.ShowWindow(get_hwnd(), SW_MAXIMIZE)
-        print("2")
+        global img, img_save_num
+        img_save_num +=1
+        save_img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        save_path = CreateFileDialog_SaveToFolder()
+        cv2.imwrite(save_path, save_img)
+        print(f"Image saved in {save_path}.")
 
     def show_edit_rgb_shift():
         dpg.show_item("cv_rgb_shift")
@@ -219,6 +226,9 @@ class MenuBar:
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog_ext")
+
+    def show_dialogue_tk():
+        open_image_tk()
 
     def show_settings():
         dpg.show_item("settings_window")
@@ -395,9 +405,10 @@ class OpenCV:
 
         r,g,b,a = cv2.split(img)
 
-        value_r = dpg.get_value("rgb_s_1") #r
-        value_g = dpg.get_value("rgb_s_2") #g
-        value_b = dpg.get_value("rgb_s_3") #b
+        value_r = int(round(dpg.get_value("rgb_s_1")))
+        value_g = int(round(dpg.get_value("rgb_s_2")))
+        value_b = int(round(dpg.get_value("rgb_s_3")))
+
         r_shifted = np.roll(r, value_r, axis=1)  # сдвиг по горизонтали на 5 пикселей
         g_shifted = np.roll(g, value_g, axis=1) # сдвиг по вертикали на -5 пикселей
         b_shifted = np.roll(b, value_b, axis=1) # сдвиг по горизонтали на 10 пикселей
@@ -695,6 +706,56 @@ def open_image(sender, app_data, cancel):
 
     load_new_image(img_list[current_index])
 
+def open_image_tk(sender=None, app_data=None, cancel=False):
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index
+    app_data = CreateFileDialog_Open()
+
+    if cancel:
+        dpg.hide_item("file_dialog_ext")
+        print("FDialog closed.")
+        return
+
+    try:
+        file_path = app_data
+    except IndexError:
+        print("No selected items.")
+        return
+    file_path = os.path.abspath(file_path)
+
+    if cancel:
+        dpg.hide_item("file_dialog_ext")
+
+    if file_path.lower().endswith((".jpg", ".png")):
+        dpg.hide_item("file_dialog_ext")
+        print(f"Selected {file_path.lower()}")
+    else:
+        print(f"Not valid file type. {file_path.lower()}")
+        return
+
+    folder = os.path.dirname(file_path)
+    name = os.path.splitext(os.path.basename(file_path))[0]
+    img_name=name
+    current_image = os.path.abspath(file_path)
+    current_folder = folder
+
+
+    img_list = sorted([
+        os.path.abspath(os.path.join(folder, f))
+        for f in os.listdir(folder)
+        if f.lower().endswith((".jpg", ".png"))
+    ])
+
+
+    current_index = img_list.index(file_path)
+
+    print("index", current_index)
+
+    image_path = file_path
+    viewport_width = dpg.get_viewport_client_width()
+    viewport_height = dpg.get_viewport_client_height()
+
+    load_new_image(img_list[current_index])
+
 def open_image_from_start(file_path):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
 
@@ -722,7 +783,7 @@ def open_image_from_start(file_path):
 
 dpg.create_context()
 #dpg.create_viewport(title='RetroImageViewer', width=screen_w//2, height=screen_h//2, x_pos=screen_w//4, y_pos=screen_h//4)
-dpg.create_viewport(title='RetroImageViewer', width=screen_w+25, height=screen_h, x_pos=0, y_pos=0)
+dpg.create_viewport(title='RetroImageViewer', small_icon=small_app_icon, large_icon=large_app_icon, width=screen_w+25, height=screen_h, x_pos=0, y_pos=0)
 
 with dpg.font_registry():
     default_font = dpg.add_font(resource_path("fonts/selawk.ttf"), 24)
@@ -739,7 +800,8 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="Save", callback=MenuBar.save_btn)
             dpg.add_menu_item(label="Save As", callback=MenuBar.save_as_btn)
             dpg.add_separator()
-            dpg.add_menu_item(label="Open...", callback=MenuBar.show_dialogue)
+            dpg.add_menu_item(label="Open...", callback=MenuBar.show_dialogue_tk)
+            dpg.add_menu_item(label="Open (old)", callback=MenuBar.show_dialogue)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp1")
         with dpg.menu(label="Edit", tag="menu_btn2"):
             dpg.add_menu_item(label="Rotate 90", callback=OpenCV.openCVRotate90)
@@ -1080,7 +1142,7 @@ dpg.show_viewport()
 print(dpg.get_item_height("menu_bar"), "- Menu bar height")
 pywinstyles.change_header_color(get_hwnd(), color="#151515")
 
-if Theme.dynamic_theming == True:
+if Theme.dynamic_theming == True and len(sys.argv) > 1:
     dynamic_img_theme(img_avg_col)
 
 dpg.start_dearpygui()
