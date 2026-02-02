@@ -17,10 +17,21 @@ import numpy as np
 import cv2
 import random
 
+from Font.funcs import putTTFText
+import cv2
+
+cv2.putTTFText = putTTFText
+
+
+
+
+
 def resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+    if getattr(sys, "frozen", False):  # exe
+        base_path = os.path.dirname(sys.executable)
+    else:  # скрипт
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 user32 = ctypes.windll.user32
 
@@ -60,21 +71,21 @@ useOpenCV = True
 img_save_num = 0
 img_channels = 0
 scale = 0.8675 #0.8645
-scale_mod = 0.05
+scale_mod = 1.15
 title_offset = -45
 dynamic_theming = True
 
 config = configparser.ConfigParser()
-config['FIRST_LAUNCH'] = {'First_launch': 'True'}
-config['UI'] =    {'isspacing': 'True',
-                     'intspacing': '0.0',}
-config['Theme'] =  { 'dynamic_theme_image': 'True'}
-config['Behaviour'] = {'zoom_mod': '0.2'}
 
 if os.path.isfile(resource_path("settings.ini")):
     print("Config file detected.")
 else:
     print("No config file. Creating...")
+    config['FIRST_LAUNCH'] = {'First_launch': 'True'}
+    config['UI'] =    {'isspacing': 'True',
+                         'intspacing': '0.0',}
+    config['Theme'] =  { 'dynamic_theme_image': 'True'}
+    config['Behaviour'] = {'zoom_mod': '1.15'}
     with open(resource_path("settings.ini"), "w") as configfile:
         config.write(configfile)
 
@@ -85,8 +96,9 @@ scale_mod = config.getfloat("Behaviour", "zoom_mod")
 
 if isFirstLaunch == True:
     print("First launch: ", isFirstLaunch)
-    with open("settings.ini", "w") as configfile:
-        config['FIRST_LAUNCH'] = {'First_launch': 'False'}
+    with open(resource_path("settings.ini"), "w") as configfile:
+        isFirstLaunch = False
+        config.set('FIRST_LAUNCH', 'First_launch', 'False')
         config.write(configfile)
 
 print("Screen resolution:",screen_w,"x",screen_h)
@@ -97,13 +109,17 @@ def save_settings():
     config['UI']['intspacing'] = str(settings_ui.spacing_set)
     config['Theme']['dynamic_theme_image'] = str(Theme.dynamic_theming)
     config['Behaviour']['zoom_mod'] = str(scale_mod)
-    with open("settings.ini", "w") as f:
+    with open(resource_path("settings.ini"), "w") as f:
         config.write(f)
         print("New settings saved into settings.ini")
 
 def show_selected_file(sender, files, cancel_pressed):
 	if not cancel_pressed:
 		dpg.set_value('selected_file', files[0])
+
+
+def debug_output():
+    print("+")
 
 def dynamic_img_theme(rgb):
     color = rgb
@@ -352,12 +368,12 @@ class Controls:
         if is_window_open():
             return
         if a < 0:
-            scale-=scale_mod
+            scale *= 1 / scale_mod
             scale = max(0.1, scale)
             print("scale -")
             image_resize()
         else:
-            scale+=scale_mod
+            scale *= scale_mod
             scale = max(0.1, scale)
             print("scale +")
             image_resize()
@@ -467,10 +483,33 @@ class OpenCV:
         global img
         font = cv2.FONT_HERSHEY_SIMPLEX
         text = dpg.get_value("input_text_1")
-        cv2.putText(img, text, (0, 50), font, 3, (255, 255, 255), 5)
+        #cv2.putText(img, text, (0, 50), font, 3, (255, 255, 255), 5)
+        imgcx,imgcy = img_width / 2, img_height / 2
+
+        img = putTTFText(img, text, (int(imgcx), int(imgcy)), resource_path("fonts/selawk.ttf"), 100, color=(255, 0, 0))
+
         print("Text added: ", text)
         update_texture_from_memory()
 
+    def openCVCrop():
+        global img
+
+        x1,x2  = 0, 1000
+        y1,y2  = 0, 500
+
+        img = img[y1:y2, x1:x2]
+        update_texture_from_memory()
+
+
+def dpg_quad():
+    mx, my = dpg.get_mouse_pos()
+
+    dpg.configure_item("roi_quad",
+            p1=[0,0],
+            p2=[mx,0],
+            p3=[mx,my],
+            p4=[0,my],
+        )
 
 
 def print_me(sender):
@@ -814,6 +853,7 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             dpg.add_menu_item(label="Edge Detection", callback=MenuBar.show_edge_detection)
             dpg.add_separator()
             dpg.add_menu_item(label="Text", callback=MenuBar.show_edit_text)
+            dpg.add_menu_item(label="Crop", callback=OpenCV.openCVCrop)
             #dpg.add_menu_item(label="AVG", callback=get_image_avg_col)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
@@ -856,6 +896,18 @@ no_move=True, no_collapse=True,no_close=True,
 no_scrollbar=False, no_scroll_with_mouse=False,
 no_bring_to_front_on_focus=True, no_resize=True):
     dpg.add_image("texture_tag", tag='main_img')
+    ##with dpg.drawlist(width=1920, height=1080, pos=[0,0]):
+    #    dpg.draw_quad(
+    #        p1=[0,0],
+    #        p2=[100,0],
+    #        p3=[100,100],
+    #        p4=[0,100],
+    #        color=(255,0,0,255),
+    #        tag="roi_quad"
+    #    )
+
+        #dpg.draw_image("main_img_texture", [0,0], [600,400])
+
 
 with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
  no_scrollbar=True, no_scroll_with_mouse=True,no_resize=True):
@@ -894,7 +946,7 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
              dpg.add_separator()
              with dpg.group(tag="settings_group2"):
                  dpg.add_text("Behaviour", tag="settings_text2")
-                 dpg.add_slider_float(label="Image zoom factor", width=200, min_value=0.0001, max_value=1, default_value=scale_mod, callback=settings_ui.img_scaling_set)
+                 dpg.add_slider_float(label="Image zoom factor", width=200, min_value=1, max_value=5, default_value=scale_mod, callback=settings_ui.img_scaling_set)
                  dpg.add_checkbox(label="Use OpenCV library\n(Required for image processing).", tag="checkbox_3", default_value = useOpenCV, callback=settings_ui.use_opencv)
              dpg.add_separator()
              with dpg.group(tag="settings_group_theme"):
@@ -960,6 +1012,51 @@ def image_resize():
 
     print("Scale: ", scale)
 
+def image_resize2():
+    global img_aspectratio
+    viewport_width = dpg.get_viewport_width()
+    viewport_height = dpg.get_viewport_height()
+    title_offset = -45
+    available_height = viewport_height - title_offset
+    available_width = viewport_width
+
+    aspect_img = img_aspectratio
+    aspect_view = available_width / available_height
+
+    if aspect_img > aspect_view:
+        img_w = available_width
+        img_h = img_w / aspect_img
+    else:
+        img_h = available_height
+        img_w = img_h * aspect_img
+
+    x = (viewport_width - img_w) / 2
+    y = (available_height - img_h) / 2 + title_offset
+
+    td = dpg.get_mouse_pos()
+
+    mx,my = td[0], td[1]
+
+    rel_x = (mx - x) / img_w
+    rel_y = (my - y) / img_h
+    iw = dpg.get_item_width("main_img")
+    ig = dpg.get_item_height("main_img")
+
+    img_w *= scale
+    img_h *= scale
+
+    x = mx - rel_x * img_w
+    y = my - rel_y * img_h
+
+    print(iw,ig,viewport_width,viewport_height)
+
+    dpg.set_item_width("main_window", viewport_width)
+    dpg.set_item_height("main_window", viewport_height*20)
+    dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x,y])
+
+    print("Scale: ", scale)
+
+
 def on_resize(sender, app_data):
     global img_aspectratio, loaded_image, image_path, current_img_w, current_img_h, current_img_pos_x, current_img_pos_y, scale
     viewport_width = dpg.get_viewport_width()
@@ -996,7 +1093,7 @@ def on_resize(sender, app_data):
 
 
 
-with dpg.theme() as menu_theme:
+with dpg.theme() as menu_theme: #menu bar
     with dpg.theme_component(dpg.mvAll):
         dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (65, 65, 65, 255))
         dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (65, 65, 65, 255)) #отдельно для настроек сделать
@@ -1127,12 +1224,17 @@ with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_LAlt, callback=Controls.alt_keys)
     dpg.add_key_press_handler(dpg.mvKey_Return, callback=Window.maximize_window)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
-    dpg.add_mouse_move_handler(callback=Window.maximize_window_xd)
+    #dpg.add_mouse_move_handler(callback=dpg_quad)
+
 
 
 with dpg.item_handler_registry(tag="inf_resize"):
     dpg.add_item_resize_handler(callback=lambda s,a: configure_text(image_path))
+
 dpg.bind_item_handler_registry("info_window", "inf_resize")
+
+dpg.set_frame_callback(1, callback=lambda s, a, u: user32.ShowWindow(get_hwnd(), SW_MAXIMIZE))
+
 dpg.set_viewport_resize_callback(on_resize)
 on_resize(None, None)
 dpg.set_viewport_decorated(True)
@@ -1140,7 +1242,7 @@ dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
 dpg.show_viewport()
 print(dpg.get_item_height("menu_bar"), "- Menu bar height")
-pywinstyles.change_header_color(get_hwnd(), color="#151515")
+pywinstyles.change_header_color(get_hwnd(), color=rgb2hex((50, 50, 50)))
 
 if Theme.dynamic_theming == True and len(sys.argv) > 1:
     dynamic_img_theme(img_avg_col)
