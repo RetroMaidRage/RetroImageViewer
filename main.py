@@ -1,5 +1,4 @@
 import dearpygui.dearpygui as dpg
-import dearpygui_extend as dpge
 from file_browser import FileBrowser
 
 from keys import keys
@@ -7,6 +6,8 @@ from tk_file_dialog import CreateFileDialog_Open, CreateFileDialog_SaveToFolder
 
 import os
 import sys
+import win32clipboard
+from io import BytesIO
 import ctypes
 import webbrowser
 import configparser
@@ -16,15 +17,12 @@ import time
 import numpy as np
 import cv2
 import random
-
+import threading
 from Font.funcs import putTTFText
-import cv2
+
+from PIL import Image
 
 cv2.putTTFText = putTTFText
-
-
-
-
 
 def resource_path(relative_path):
     if getattr(sys, "frozen", False):  # exe
@@ -43,8 +41,8 @@ screen_h = user32.GetSystemMetrics(1)
 def get_hwnd():
     return user32.FindWindowW(None, "RetroImageViewer")
 
-if not os.path.exists("output"):
-    os.makedirs("output")
+if not os.path.exists(resource_path("output")):
+    os.makedirs(resource_path("output"))
     print("No output folder. Creating...")
 else:
     print("Output folder detected.")
@@ -68,12 +66,19 @@ image_path = None
 show_wv = True
 
 useOpenCV = True
+useThreading = True
+useResizing = True
+resize_res = 2000
+resize_factor = 2.0
+
 img_save_num = 0
 img_channels = 0
 scale = 0.8675 #0.8645
 scale_mod = 1.15
 title_offset = -45
 dynamic_theming = True
+
+msg_timer_start = 0
 
 config = configparser.ConfigParser()
 
@@ -86,6 +91,11 @@ else:
                          'intspacing': '0.0',}
     config['Theme'] =  { 'dynamic_theme_image': 'True'}
     config['Behaviour'] = {'zoom_mod': '1.15'}
+    config['Mechanics'] = {'loading_thread': 'True',
+                            'isresize': 'True',
+                            'resizeres': '2000',
+                            'resizefactor': '1.5'}
+
     with open(resource_path("settings.ini"), "w") as configfile:
         config.write(configfile)
 
@@ -93,6 +103,13 @@ config.read(resource_path("settings.ini"))
 
 isFirstLaunch = config.getboolean("FIRST_LAUNCH", "First_launch")
 scale_mod = config.getfloat("Behaviour", "zoom_mod")
+useThreading = config.getboolean("Mechanics", "loading_thread")
+useResizing = config.getboolean("Mechanics", "isresize")
+resize_res = config.getint("Mechanics", "resizeres")
+resize_factor = config.getfloat("Mechanics", "resizefactor")
+
+print(f"\nThreading: {useThreading}")
+print(f"Resizing: {useResizing}\n")
 
 if isFirstLaunch == True:
     print("First launch: ", isFirstLaunch)
@@ -109,14 +126,19 @@ def save_settings():
     config['UI']['intspacing'] = str(settings_ui.spacing_set)
     config['Theme']['dynamic_theme_image'] = str(Theme.dynamic_theming)
     config['Behaviour']['zoom_mod'] = str(scale_mod)
+    config['Mechanics']['loading_thread'] = str(useThreading)
+    config['Mechanics']['isresize'] = str(useResizing)
+    config['Mechanics']['resizeres'] = str(resize_res)
+    config['Mechanics']['resizefactor'] = str(resize_factor)
+
     with open(resource_path("settings.ini"), "w") as f:
         config.write(f)
         print("New settings saved into settings.ini")
+        MenuBar.show_message("Settings saved.")
 
 def show_selected_file(sender, files, cancel_pressed):
 	if not cancel_pressed:
 		dpg.set_value('selected_file', files[0])
-
 
 def debug_output():
     print("+")
@@ -136,9 +158,15 @@ def dynamic_img_theme(rgb):
             dpg.add_theme_style(dpg.mvStyleVar_WindowTitleAlign, 0.5, 0.5)
             img_avg_col2 = (img_avg_col[0]-35,img_avg_col[1]-35,img_avg_col[2]-35)
             pywinstyles.change_header_color(get_hwnd(), color=rgb2hex(img_avg_col2))
+            pywinstyles.change_title_color(get_hwnd(), color="white")
 
     dpg.bind_item_theme("main_window", dynamic_theme) #создавать мини окна от размера этого, а не от вьюпорта или экрана
     dpg.bind_item_theme("menu_bar", dynamic_theme)
+    dpg.bind_item_theme("menu_btn1", dynamic_theme)
+    dpg.bind_item_theme("menu_btn2", dynamic_theme)
+    dpg.bind_item_theme("menu_btn3", dynamic_theme)
+    dpg.bind_item_theme("menu_btn5", dynamic_theme)
+    dpg.bind_item_theme("menu_btn6", dynamic_theme)
     dpg.bind_theme(dynamic_theme)
 
 small_app_icon = resource_path("icons/16_ico_n.ico")
@@ -187,28 +215,6 @@ class Window:
                 user32.ShowWindow(hwnd, SW_MAXIMIZE)
                 isMaximized_xd = True
 
-    def start_drag(sender, app_data):
-        global dragging, drag_offset
-        dragging = True
-        mouse_pos = dpg.get_mouse_pos()
-        viewport_pos = dpg.get_viewport_pos()
-        drag_offset = [mouse_pos[0] - viewport_pos[0], mouse_pos[1] - viewport_pos[1]]
-
-
-    def stop_drag(sender, app_data):
-        global dragging
-        dragging = False
-
-    def window_drag():
-        global dragging, drag_offset
-        if dragging:
-            mouse_pos = dpg.get_mouse_pos()
-            viewport_pos = dpg.get_viewport_pos()
-            new_x = mouse_pos[0] - viewport_pos[0]
-            new_y = mouse_pos[1] - viewport_pos[1]
-            dpg.set_viewport_pos(mouse_pos)
-            print("Dragging",mouse_pos)
-
     def app_close():
         dpg.stop_dearpygui()
 
@@ -230,6 +236,7 @@ class MenuBar:
         save_path = CreateFileDialog_SaveToFolder()
         cv2.imwrite(save_path, save_img)
         print(f"Image saved in {save_path}.")
+        MenuBar.show_message(f"Saved:\n{os.path.basename(save_path)}")
 
     def show_edit_rgb_shift():
         dpg.show_item("cv_rgb_shift")
@@ -252,6 +259,19 @@ class MenuBar:
     def show_info():
         dpg.show_item("info_window")
 
+    def show_message(message="hello there"):
+        global msg_timer_start
+        dpg.show_item("message_window")
+        dpg.configure_item("message_text", default_value=message,pos=[35, 40])
+        msg_timer_start = time.perf_counter()
+
+    def msg_timer():
+        if dpg.is_item_shown("message_window"):
+            elapsed = time.perf_counter() - msg_timer_start
+            if elapsed >= 2.0:
+                dpg.hide_item("message_window")
+
+
     def show_about():
         webbrowser.open("https://github.com/RetroMaidRage/RetroImageViewer")
 
@@ -266,8 +286,11 @@ class settings_ui:
     spacing = config.getboolean("UI", "isspacing")
     spacing_set = config.getfloat("UI", "intspacing")
     scaling_set = config.getfloat("Behaviour", "zoom_mod")
+    useThreading = config.getboolean("Mechanics", "loading_thread")
+    resize_res = config.getint("Mechanics", "resizeres")
+    resize_factor = config.getfloat("Mechanics", "resizefactor")
 
-    print(spacing, spacing_set)
+    #print(spacing, spacing_set)
     spacing_items = ["sp1", "sp2", "sp3", "sp4"]
 
     @staticmethod
@@ -298,11 +321,23 @@ class settings_ui:
         scale_mod = app_data
         save_settings()
 
+    def img_resizing():
+        global resize_res, resize_factor, useResizing
+        useResizing = dpg.get_value("checkbox_7")
+        resize_res = dpg.get_value("resizing_res_text")
+        resize_factor = float(dpg.get_value("resizing_factor_text"))
+        save_settings()
 
     def use_opencv():
         global useOpenCV
         useOpenCV = not useOpenCV
         save_settings()
+
+    def image_threading():
+        global useThreading
+        useThreading = not useThreading
+        save_settings()
+
 
 class Theme():
     dynamic_theming = config.getboolean("Theme", "dynamic_theme_image")
@@ -329,29 +364,56 @@ class Controls:
     is_info_showed = False
     w_pressed = False
     q_was_pressed = False
+    s_was_pressed = False
+    c_was_pressed = False
+
     @staticmethod
     def prev_img():
         global current_index
         if current_index > 0:
             current_index -= 1
-            load_new_image(img_list[current_index])
-            print("Image index: ", current_index)
+            if useThreading == True:
+                t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
+                t1.start()
+                print("Thread loading: ", useThreading)
+            else:
+                load_new_image(img_list[current_index])
+            #print("Image index: ", current_index)
 
     def next_img():
         global current_index
         if current_index < len(img_list) - 1:
             current_index += 1
-            load_new_image(img_list[current_index])
-            print("Image index: ", current_index)
+            if useThreading == True:
+                t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
+                t1.start()
+                print("Thread loading: ", useThreading)
+            else:
+                load_new_image(img_list[current_index])
+            #print("Image index: ", current_index)
     #print(img_list[current_index])
 
     def clear_img():
         global current_index
+
         q_pressed = dpg.is_key_down(dpg.mvKey_Q)
         if q_pressed and not Controls.q_was_pressed:
             load_new_image(img_list[current_index])
             print("Image reloaded.")
+            MenuBar.show_message("Image reloaded.")
         Controls.q_was_pressed = q_pressed
+
+        s_pressed = dpg.is_key_down(dpg.mvKey_S)
+        if s_pressed and not Controls.s_was_pressed:
+            MenuBar.save_as_btn()
+        Controls.s_was_pressed = s_pressed
+
+        c_pressed = dpg.is_key_down(dpg.mvKey_C)
+        if c_pressed and not Controls.c_was_pressed:
+            save_to_clipboard(image_path)
+            MenuBar.show_message("Copied")
+        Controls.c_was_pressed = c_pressed
+
 
     def alt_keys():
         w_pressed = dpg.is_key_down(dpg.mvKey_W)
@@ -386,11 +448,13 @@ class OpenCV:
         global img
         img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
         update_texture_from_memory()
+        MenuBar.show_message("Image rotated\n+90")
 
     def openCVRotateM90():
         global img
         img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
         update_texture_from_memory()
+        MenuBar.show_message("Image rotated\n-90")
 
     def openCVGrayscale():
         global img
@@ -398,14 +462,17 @@ class OpenCV:
         img = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGBA)
         print("Grayscale applied.")
         update_texture_from_memory()
+        MenuBar.show_message("Applied:\nGrayscale")
 
     def avg_color(file_path):
         step = 8
         src_img = cv2.imread(file_path)
+        if src_img is None:
+            src_img = opencv_unicode(file_path)
         sampled = src_img[::step, ::step]
         average_color_row = np.average(sampled, axis=0)
         average_color = np.average(average_color_row, axis=0)
-        print(average_color)
+        #print(average_color)
         return average_color
 
     def main_color():
@@ -432,6 +499,7 @@ class OpenCV:
         merge_rgb = cv2.merge([r_shifted, g_shifted, b_shifted, a])
         img = merge_rgb
         print("RGB Shift applied.")
+        MenuBar.show_message("Applied:\nRGB Shift")
         update_texture_from_memory()
 
     def openCVNoise():
@@ -442,6 +510,7 @@ class OpenCV:
         #noise = cv2.GaussianBlur(noise, (0, 0), 0.8)
         img = cv2.add(img, noise)
         print("Noise applied.")
+        MenuBar.show_message("Applied:\nNoise")
         update_texture_from_memory()
 
     def openCVEdge_Detection(sener, app_data, user_data):
@@ -470,12 +539,14 @@ class OpenCV:
         img = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGRA)
         #OpenCV.openCVGaussian_Blur()
         print("Edge detection applied: ", user_data)
+        MenuBar.show_message("Applied:\nEdge")
         update_texture_from_memory()
 
     def openCVGaussian_Blur():
         global img
         img = cv2.GaussianBlur(img, (5, 5), 1.4)
         print("Gaussian Blur applied: ")
+        MenuBar.show_message("Applied:\nBlur")
         update_texture_from_memory()
 
 
@@ -489,9 +560,10 @@ class OpenCV:
         img = putTTFText(img, text, (int(imgcx), int(imgcy)), resource_path("fonts/selawk.ttf"), 100, color=(255, 0, 0))
 
         print("Text added: ", text)
+        MenuBar.show_message("Applied:\nText")
         update_texture_from_memory()
 
-    def openCVCrop():
+    def openCVCrop(): #add resize
         global img
 
         x1,x2  = 0, 1000
@@ -523,6 +595,20 @@ def is_window_open():
         dpg.is_item_shown("file_dialog_ext")
     )
 
+def save_to_clipboard(filepath):
+
+    image = Image.open(filepath)
+
+    output = BytesIO()
+    image.convert("RGB").save(output, "BMP")
+    data = output.getvalue()[14:]
+    output.close()
+
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.CloseClipboard()
+
 def configure_text(file):
     window_width = dpg.get_item_width("info_window")
     window_height = dpg.get_item_height("info_window")
@@ -551,7 +637,7 @@ def configure_image(file, width, height):
 
     window_height = dpg.get_item_height("main_window")
 
-    print("VH: "+str(viewport_height)+" WH: "+str(window_height))
+    #print("VH: "+str(viewport_height)+" WH: "+str(window_height))
     img_w = viewport_width
     img_h = img_w / img_aspectratio
 
@@ -572,15 +658,40 @@ def configure_image(file, width, height):
     #dpg.set_item_height("main_window", viewport_height)
     #dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y])
 
+    #print(f"""Image size: {img_w}x{img_h}""")
     image_data = f"""{file} Resolution:  {str(width)}x{str(height)}"""
     dpg.configure_item("main_window", label=image_data)
-    print(f"""Image size: {img_w}x{img_h}""")
+
+
+def opencv_unicode(file_path):
+    print(f"For file: | {os.path.basename(file_path)} | using unicode reading with numpy.")
+    data = np.fromfile(file_path, dtype=np.uint8)
+
+    img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+    return img
 
 def opencv_image(file_path):
     global img
-    img = cv2.imread(file_path)        # BGR
+
+    cv_img = None
+    cv_img = cv2.imread(file_path)
+
+    if cv_img is None:
+        cv_img = opencv_unicode(file_path)
+
+    img = cv_img        # BGR
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
     height, width, channels = img.shape
+    height_i, width_i = height, width
+    resize_resolution = int(resize_res)
+    if useResizing == True:
+        if height >= resize_resolution or width >= resize_resolution:
+            r_width = int(width / resize_factor)
+            r_height = int(height / resize_factor)
+            img = cv2.resize(img, (r_width, r_height), interpolation=cv2.INTER_AREA)
+            height, width = img.shape[:2]
+            print(f"Image resolution is too big {width_i},{height_i}, resizing to...{width}x{height}")
+
     data = img.flatten() / 255.0
     return width, height, channels, data
 
@@ -613,22 +724,20 @@ def update_texture_from_memory():
 
     on_resize(None, None)
 
-def load_image_by_index(index):
-    global current_index
-    if 0 <= index < len(img_list):
-        current_index = index
-        load_new_image(img_list[current_index])
-        configure_text(img_list[current_index])
-    else:
-        print("Image idex out of range:", index)
-
 def load_new_image(file_path):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels, img_data, img_avg_col
     #загружать картинку уже с измененым положением
+    start_t = time.perf_counter()
     if useOpenCV == True:
+        start = time.perf_counter()
         loaded_image = opencv_image(file_path)
+        end = time.perf_counter()
+        print(f"\nOpenCV image opening time: {end - start:.6f} sec.")
     else:
+        start = time.perf_counter()
         loaded_image = dpg.load_image(file_path)
+        end = time.perf_counter()
+        print(f"\nDPG image opening time: {end - start:.6f} sec.")
 
     if loaded_image is None:
         print("Wrong image/can't load it. "+"Filepath: "+file_path)
@@ -643,8 +752,6 @@ def load_new_image(file_path):
 
     viewport_width = dpg.get_viewport_width()
     viewport_height = dpg.get_viewport_height()
-
-    title_offset = -45
 
     available_height = viewport_height - title_offset
     available_width = viewport_width
@@ -669,32 +776,38 @@ def load_new_image(file_path):
     old_img_tag = img_tag-1
     old_img_name_tag = "img_"+str(old_img_tag)
 
-    print("New texture tag: ", new_img_tag)
+    #print("New texture tag: ", new_img_tag)
 
-    print("Old texture tag: ", old_img_name_tag)
+    #print("Old texture tag: ", old_img_name_tag)
 
     if dpg.does_item_exist(old_img_name_tag):
         dpg.delete_item(old_img_name_tag)
-        print(f"Old texture tag: {old_img_name_tag} deleted")
-    else:
-        print(f"Old texture tag: {old_img_name_tag} not found")
+        #print(f"Old texture tag: {old_img_name_tag} deleted")
+    #else:
+        #print(f"Old texture tag: {old_img_name_tag} not found")
 
     if Theme.dynamic_theming == True:
         img_avg_col = OpenCV.avg_color(file_path)
 
     with dpg.texture_registry(show=False):
+        start_i = time.perf_counter()
         dpg.add_static_texture(width=width, height=height, default_value=data, tag=new_img_tag)
         dpg.configure_item("main_img", texture_tag=new_img_tag,  pos=[x,y], width=img_w, height=img_h)
+        end_i = time.perf_counter()
+        print(f"Static texture processing time:  {end_i - start_i:.6f}")
 
     if Theme.dynamic_theming == True:
         dynamic_img_theme(img_avg_col)
 
     configure_image(file_path, width, height)
+    end_t = time.perf_counter()
+    print(f"Image rendering time: {end_t - start_t:.6f} sec.\n")
     #OpenCV.main_color()
-
+    image_path = file_path
     #on_resize(None, None)
+    print("-------------------------------------------")
     print(f"""Image: {img_name} | Res: {width}x{height} | Tag: {new_img_tag}""")
-
+    print("-------------------------------------------")
     configure_text(img_list[current_index])
 
 
@@ -737,7 +850,7 @@ def open_image(sender, app_data, cancel):
 
     current_index = img_list.index(file_path)
 
-    print("index", current_index)
+    #print("index", current_index)
 
     image_path = file_path
     viewport_width = dpg.get_viewport_client_width()
@@ -787,15 +900,22 @@ def open_image_tk(sender=None, app_data=None, cancel=False):
 
     current_index = img_list.index(file_path)
 
-    print("index", current_index)
+    #print("index", current_index)
 
     image_path = file_path
     viewport_width = dpg.get_viewport_client_width()
     viewport_height = dpg.get_viewport_client_height()
 
-    load_new_image(img_list[current_index])
+    if useThreading == True:
+        t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
+        t1.start()
+        print("Thread loading: ", useThreading)
+    else:
+        load_new_image(img_list[current_index])
 
-def open_image_from_start(file_path):
+    MenuBar.show_message("Image opened")
+
+def open_image_from_start(file_path): #debug index bug
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
 
     file_path = os.path.abspath(file_path)
@@ -814,7 +934,7 @@ def open_image_from_start(file_path):
         return
 
     current_index = img_list.index(file_path)
-    print("index", current_index)
+    #print("index", current_index)
 
     image_path = file_path
     load_new_image(img_list[current_index])
@@ -858,6 +978,7 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
             dpg.add_menu_item(label="Info", callback=MenuBar.show_info)
+            dpg.add_menu_item(label="Message", callback=MenuBar.show_message)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp3")
         dpg.add_menu_item(label="Settings", tag="menu_btn5", callback=MenuBar.show_settings)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp4")
@@ -947,11 +1068,22 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
              with dpg.group(tag="settings_group2"):
                  dpg.add_text("Behaviour", tag="settings_text2")
                  dpg.add_slider_float(label="Image zoom factor", width=200, min_value=1, max_value=5, default_value=scale_mod, callback=settings_ui.img_scaling_set)
-                 dpg.add_checkbox(label="Use OpenCV library\n(Required for image processing).", tag="checkbox_3", default_value = useOpenCV, callback=settings_ui.use_opencv)
              dpg.add_separator()
              with dpg.group(tag="settings_group_theme"):
                  dpg.add_text("Theme")
                  dpg.add_checkbox(label="Dynamic theme", tag="checkbox_5", default_value = Theme.dynamic_theming, callback=Theme.dynamic_image_theme)
+             dpg.add_separator()
+             with dpg.group(tag="settings_group4"):
+                 dpg.add_text("Mechanics")
+                 dpg.add_checkbox(label="Use OpenCV library\n(Required for image processing).", tag="checkbox_3", default_value = useOpenCV, callback=settings_ui.use_opencv)
+                 dpg.add_checkbox(label="Image Threading load", tag="checkbox_6", default_value = useThreading, callback=settings_ui.image_threading)
+                 #dpg.add_separator()
+                 dpg.add_checkbox(label="Image Resizing", tag="checkbox_7",callback=settings_ui.img_resizing, default_value = useResizing)
+                 with dpg.group(horizontal=True):
+                     dpg.add_text("Resize on res:")
+                     dpg.add_input_text(width=50, tag="resizing_res_text", default_value=resize_res, callback=settings_ui.img_resizing)
+                     dpg.add_text("Resize multiplier:")
+                     dpg.add_input_text(width=35, tag="resizing_factor_text", default_value=resize_factor, callback=settings_ui.img_resizing)
              dpg.add_separator()
              with dpg.group(tag="settings_group3"):
                  dpg.add_text("Keybindings", tag="keys_text")
@@ -961,20 +1093,32 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
                  with dpg.group(horizontal=True):
                      dpg.add_combo(keys, label="+", default_value="mvKey_LAlt", tag="all_keys2", width =200)
                      dpg.add_combo(keys, label="Info Window", default_value="mvKey_W", tag="all_keys3",  width =200)
+                 with dpg.group(horizontal=True):
+                     dpg.add_combo(keys, label="+", default_value="mvKey_LControl", tag="all_keys11", width =200)
+                     dpg.add_combo(keys, label="Save as", default_value="mvKey_C", tag="all_keys12",  width =200)
+                 with dpg.group(horizontal=True):
+                     dpg.add_combo(keys, label="+", default_value="mvKey_LControl", tag="all_keys14", width =200)
+                     dpg.add_combo(keys, label="To clipboard", default_value="mvKey_C", tag="all_keys15",  width =200)
 
                  dpg.add_combo(keys, label="Maximize", default_value="mvKey_Enter", tag="all_keys4", width =200)
                  dpg.add_combo(keys, label="Prev", default_value="mvKey_Left", tag="all_keys6",  width =200)
                  dpg.add_combo(keys, label="Next", default_value="mvKey_Right", tag="all_keys5",  width =200)
              dpg.add_separator()
-             with dpg.group(tag="settings_group4"):
+             with dpg.group(tag="settings_group5"):
                  dpg.add_text("Debug", tag="debug_text")
-                 dpg.add_text("Version: 0.07a-win", tag="debug_text1")
+                 dpg.add_text("Version: 0.098a-pre-win", tag="debug_text1")
 
 if show_wv == True:
     with dpg.window(label="Image: Info", show=False, tag="info_window", pos=[0, 200], width=500, height=600):
         with dpg.group(horizontal=True, tag="info_group"):
             dpg.add_text("hello", tag="info_text")
 #ширина окна от ширины текста
+with dpg.window(label="Message",no_move=True, no_focus_on_appearing= True,
+ no_collapse=True, no_close=True, no_resize=True, no_title_bar=False,
+  show=False, tag="message_window",
+   pos=[dpg.get_viewport_width()/1.125, dpg.get_viewport_height()/18], width=200, height=20):
+    dpg.add_text("", tag="message_text")
+
 with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag="file_dialog", width=screen_w//2, height=screen_h//2):
     dpg.add_file_extension(".*", color=(255, 255, 255, 255))
     dpg.add_file_extension(".jpg", color=(144, 238, 144, 255))
@@ -1004,7 +1148,7 @@ def image_resize():
     iw = dpg.get_item_width("main_img")
     ig = dpg.get_item_height("main_img")
 
-    print(iw,ig,viewport_width,viewport_height)
+    #print(iw,ig,viewport_width,viewport_height)
 
     dpg.set_item_width("main_window", viewport_width)
     dpg.set_item_height("main_window", viewport_height*20)
@@ -1048,7 +1192,7 @@ def image_resize2():
     x = mx - rel_x * img_w
     y = my - rel_y * img_h
 
-    print(iw,ig,viewport_width,viewport_height)
+    #print(iw,ig,viewport_width,viewport_height)
 
     dpg.set_item_width("main_window", viewport_width)
     dpg.set_item_height("main_window", viewport_height*20)
@@ -1082,7 +1226,7 @@ def on_resize(sender, app_data):
     dpg.set_item_height("main_window", viewport_height)
     dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y])
 
-    print(f"""Image size after resize: {str(int(img_w))}x{img_h}""")
+    #print(f"""Image size after resize: {str(int(img_w))}x{img_h}""")
     if image_path is not None:
         configure_text(image_path)
 
@@ -1186,7 +1330,7 @@ else:
     loaded_image = resource_path("icons/img.jpg")
     width, height, channels, data = dpg.load_image(loaded_image)
     img_aspectratio = width / height
-    print(width, width, img_aspectratio)
+    #print(width, width, img_aspectratio)
     with dpg.texture_registry(show=False):
         dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag1")
 
@@ -1214,6 +1358,7 @@ dpg.bind_item_theme("checkbox_1", checkbox_theme)
 dpg.bind_item_theme("settings_group1", checkbox_theme)
 dpg.bind_item_theme("settings_group2", checkbox_theme)
 dpg.bind_item_theme("welcome_window", non_transparent_theme)
+dpg.bind_item_theme("message_window", non_transparent_theme)
 dpg.bind_item_theme("file_dialog_ext", non_transparent_theme)
 
 
@@ -1234,19 +1379,26 @@ with dpg.item_handler_registry(tag="inf_resize"):
 dpg.bind_item_handler_registry("info_window", "inf_resize")
 
 dpg.set_frame_callback(1, callback=lambda s, a, u: user32.ShowWindow(get_hwnd(), SW_MAXIMIZE))
-
+#dpg.add_render_callback(5, tag="msg_timer1", callback=MenuBar.msg_timer)
 dpg.set_viewport_resize_callback(on_resize)
 on_resize(None, None)
 dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
 dpg.show_viewport()
-print(dpg.get_item_height("menu_bar"), "- Menu bar height")
+#print(dpg.get_item_height("menu_bar"), "- Menu bar height")
 pywinstyles.change_header_color(get_hwnd(), color=rgb2hex((50, 50, 50)))
 
 if Theme.dynamic_theming == True and len(sys.argv) > 1:
     dynamic_img_theme(img_avg_col)
 
-dpg.start_dearpygui()
+while dpg.is_dearpygui_running():
+    # проверяем таймер
+    if dpg.is_item_shown("message_window"):
+        elapsed = time.perf_counter() - msg_timer_start
+        if elapsed >= 1.5:
+            dpg.hide_item("message_window")
+
+    dpg.render_dearpygui_frame()  # отрисовывает фрейм
 
 dpg.destroy_context()
