@@ -60,6 +60,11 @@ dragging = False
 img_tag = 0
 int_img_tag = 0
 
+img_is_loaded = False
+
+image_list_loaded = False
+image_from_list = []
+image_items_tags = []
 custom_decorator = False
 
 image_path = None
@@ -366,11 +371,15 @@ class Controls:
     q_was_pressed = False
     s_was_pressed = False
     c_was_pressed = False
+    la_was_pressed = False
+    ra_was_pressed = False
 
     @staticmethod
     def prev_img():
+    #    la_pressed = dpg.is_key_down(dpg.mvKey_Left)
+
         global current_index
-        if current_index > 0:
+        if current_index > 0 and img_is_loaded:
             current_index -= 1
             if useThreading == True:
                 t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
@@ -378,11 +387,13 @@ class Controls:
                 print("Thread loading: ", useThreading)
             else:
                 load_new_image(img_list[current_index])
+        #    Controls.la_was_pressed = la_pressed
+
             #print("Image index: ", current_index)
 
     def next_img():
         global current_index
-        if current_index < len(img_list) - 1:
+        if current_index < len(img_list) - 1 and img_is_loaded:
             current_index += 1
             if useThreading == True:
                 t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
@@ -695,6 +706,32 @@ def opencv_image(file_path):
     data = img.flatten() / 255.0
     return width, height, channels, data
 
+def opencv_image_list(file_path):
+    global img, img_list_width, img_list_height
+
+    cv_img = None
+    cv_img = cv2.imread(file_path)
+
+    if cv_img is None:
+        cv_img = opencv_unicode(file_path)
+
+    img = cv_img        # BGR
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
+    height, width, channels = img.shape
+    height_i, width_i = height, width
+
+    max_side = max(width_i, height_i)
+    scale = 128 / max_side
+    new_width = int(width_i * scale)
+    new_height = int(height_i * scale)
+    print(f"Rescaled image list resolution: {new_width}x{new_height}")
+    img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    height, width = new_height, new_width
+    img_list_width = width
+    img_list_height = height
+    data = img.flatten() / 255.0
+    return width, height, channels, data
+
 def update_texture_from_memory():
 
     global img, img_tag, loaded_image, img_width, img_height, img_aspectratio
@@ -724,8 +761,93 @@ def update_texture_from_memory():
 
     on_resize(None, None)
 
+def remove_old_images_from_list():
+    print(image_from_list)
+    if image_items_tags is not None:
+        for img_l in image_items_tags:
+            dpg.delete_item(img_l)
+            print("Deleted image item from list: ", img_l)
+
+    if image_from_list is not None:
+        for img_l1 in image_from_list:
+            dpg.delete_item(img_l1)
+            print("Deleted image from list: ", img_l1)
+
+    image_items_tags.clear()
+    image_from_list.clear()
+
+
+
+def add_new_images_to_list(image):
+    global image_items_tags
+
+    #with dpg.group(horizontal=True, parent=list_images_window) as images_horizontal:
+    #    pass
+
+    image_item_tag = "list_img_item"
+
+
+    image_item_tag = "list_img_item_"+str(image)
+    image_items_tags.append(image_item_tag)
+    dpg.add_image(image, parent=images_horizontal, tag=image_item_tag)
+
+def load_new_images(file_path): #or just add directly in the window for the moment
+    global image_list_loaded, image_from_list
+    remove_old_images_from_list()
+
+    directory_files = []
+    base_path = os.path.dirname(file_path)
+    dpg.configure_item("list_window", label=base_path)
+
+    with dpg.texture_registry(show=True) as new_image_registry:
+        pass
+
+    img_tag1 = 0
+    new_img_tag_str = "t"
+    width1, height1, channels1, data1 = None, None, None, None
+    directory = os.listdir(base_path)
+    image_from_list = []
+
+    for file in directory:
+        if file.lower().endswith((".jpg", ".png")):
+            directory_files.append(file)
+            print(file)
+            absfile = os.path.join(base_path, file)
+            print(absfile)
+            img_tag1 +=1
+            new_img_tag_str = "img_list_"+str(img_tag1)
+
+            if useOpenCV == True:
+                start = time.perf_counter()
+                loaded1_image = opencv_image_list(absfile)
+                end = time.perf_counter()
+                print(f"\nOpenCV image opening time: {end - start:.6f} sec.")
+                width1, height1, channels1, data1 = loaded1_image
+                image_from_list.append(new_img_tag_str)
+            else:
+                start = time.perf_counter()
+                loaded1_image = dpg.load_image(absfile)
+                end = time.perf_counter()
+                print(f"\nDPG image opening time: {end - start:.6f} sec.")
+                width1, height1, channels1, data1 = loaded1_image
+                image_from_list.append(new_img_tag_str)
+
+
+            print(f"Adding texture {new_img_tag_str}: width={width1}, height={height1}, channels={channels1}, data_len={len(data1)}")
+                #if
+
+            start_i = time.perf_counter()
+            dpg.add_static_texture(width=width1, height=height1, default_value=data1, tag=new_img_tag_str, parent=new_image_registry)
+            add_new_images_to_list(new_img_tag_str)
+            end_i = time.perf_counter()
+            print(f"Static textures processing time:  {end_i - start_i:.6f}")
+
+    #add_new_images_to_list(image_from_list)
+    image_list_loaded = True
+
 def load_new_image(file_path):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels, img_data, img_avg_col
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels, img_data, img_avg_col, img_is_loaded
+    img_is_loaded = False
     #загружать картинку уже с измененым положением
     start_t = time.perf_counter()
     if useOpenCV == True:
@@ -809,6 +931,9 @@ def load_new_image(file_path):
     print(f"""Image: {img_name} | Res: {width}x{height} | Tag: {new_img_tag}""")
     print("-------------------------------------------")
     configure_text(img_list[current_index])
+    img_is_loaded = True
+    if not image_list_loaded:
+        load_new_images(file_path)
 
 
 def open_image(sender, app_data, cancel):
@@ -859,8 +984,12 @@ def open_image(sender, app_data, cancel):
     load_new_image(img_list[current_index])
 
 def open_image_tk(sender=None, app_data=None, cancel=False):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index, image_list_loaded
     app_data = CreateFileDialog_Open()
+
+    image_list_loaded = False
+
+    #remove_old_images_from_list()
 
     if cancel:
         dpg.hide_item("file_dialog_ext")
@@ -914,6 +1043,7 @@ def open_image_tk(sender=None, app_data=None, cancel=False):
         load_new_image(img_list[current_index])
 
     MenuBar.show_message("Image opened")
+
 
 def open_image_from_start(file_path): #debug index bug
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name
@@ -1028,7 +1158,14 @@ no_bring_to_front_on_focus=True, no_resize=True):
     #    )
 
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
-
+        #dpg.draw_image("main_img_texture", [0,0], [600,400])
+with dpg.window(label="list", tag="list_window", pos=[0,dpg.get_viewport_height()-225], width=dpg.get_viewport_width(), height=200,
+no_move=True, no_collapse=False,no_close=True,
+no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True) as list_images_window:
+    #dpg.add_image("texture_tag", tag='main_img')
+    with dpg.group(horizontal=True, parent=list_images_window) as images_horizontal:
+        pass
+    #dpg.add_image("texture_tag", tag='list_img')
 
 with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
  no_scrollbar=True, no_scroll_with_mouse=True,no_resize=True):
@@ -1348,6 +1485,7 @@ dpg.bind_item_theme("menu_btn6", btn_theme)
 
 dpg.bind_item_theme("info_window", transparent_theme)
 dpg.bind_item_theme("settings_window", non_transparent_theme)
+dpg.bind_item_theme("list_window", transparent_theme)
 dpg.bind_item_theme("cv_text", transparent_theme)
 dpg.bind_item_theme("cv_rgb_shift", transparent_theme)
 dpg.bind_item_theme("cv_edge_d", transparent_theme)
