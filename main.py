@@ -62,6 +62,7 @@ int_img_tag = 0
 
 img_is_loaded = False
 
+useImagePreview = True
 image_list_loaded = False
 image_from_list = []
 image_items_tags = []
@@ -165,6 +166,18 @@ def dynamic_img_theme(rgb):
             pywinstyles.change_header_color(get_hwnd(), color=rgb2hex(img_avg_col2))
             pywinstyles.change_title_color(get_hwnd(), color="white")
 
+    with dpg.theme() as dynamic_theme_tansparent:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (color[0], color[1], color[2], 100))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (color[0]-25, color[1]-25, color[2]-25, 175))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (color[0]-25, color[1]-25, color[2]-25, 175))
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (color[0]-35,color[1]-35,color[2]-35, 100))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgCollapsed, (65, 65, 65, 200))
+
+            dpg.add_theme_color(dpg.mvThemeCol_ResizeGrip, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ResizeGripHovered, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ResizeGripActive, (0, 0, 0, 0))
+
     dpg.bind_item_theme("main_window", dynamic_theme) #создавать мини окна от размера этого, а не от вьюпорта или экрана
     dpg.bind_item_theme("menu_bar", dynamic_theme)
     dpg.bind_item_theme("menu_btn1", dynamic_theme)
@@ -172,6 +185,7 @@ def dynamic_img_theme(rgb):
     dpg.bind_item_theme("menu_btn3", dynamic_theme)
     dpg.bind_item_theme("menu_btn5", dynamic_theme)
     dpg.bind_item_theme("menu_btn6", dynamic_theme)
+    dpg.bind_item_theme("list_window", dynamic_theme_tansparent)
     dpg.bind_theme(dynamic_theme)
 
 small_app_icon = resource_path("icons/16_ico_n.ico")
@@ -251,6 +265,9 @@ class MenuBar:
 
     def show_edit_text():
         dpg.show_item("cv_text")
+
+    def show_preview_list():
+        dpg.show_item("list_window")
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog_ext")
@@ -355,7 +372,30 @@ class Theme():
         if Theme.dynamic_theming == False:
             dpg.bind_item_theme("main_window", menu_theme) #создавать мини окна от размера этого, а не от вьюпорта или экрана
             dpg.bind_item_theme("menu_bar", bar_theme)
+
             dpg.bind_theme(menu_theme)
+
+            dpg.bind_item_theme("menu_btn1", btn_theme)
+            dpg.bind_item_theme("menu_btn2", btn_theme)
+            dpg.bind_item_theme("menu_btn3", btn_theme)
+            dpg.bind_item_theme("menu_btn5", btn_theme)
+            dpg.bind_item_theme("menu_btn6", btn_theme)
+
+            dpg.bind_item_theme("info_window", transparent_theme)
+            dpg.bind_item_theme("settings_window", non_transparent_theme)
+            dpg.bind_item_theme("list_window", transparent_theme)
+            dpg.bind_item_theme("cv_text", transparent_theme)
+            dpg.bind_item_theme("cv_rgb_shift", transparent_theme)
+            dpg.bind_item_theme("cv_edge_d", transparent_theme)
+            dpg.bind_item_theme("rgb_s_1", slider_red)
+            dpg.bind_item_theme("rgb_s_2", slider_green)
+            dpg.bind_item_theme("rgb_s_3", slider_blue)
+            dpg.bind_item_theme("checkbox_1", checkbox_theme)
+            dpg.bind_item_theme("settings_group1", checkbox_theme)
+            dpg.bind_item_theme("settings_group2", checkbox_theme)
+            dpg.bind_item_theme("welcome_window", non_transparent_theme)
+            dpg.bind_item_theme("message_window", non_transparent_theme)
+            dpg.bind_item_theme("file_dialog_ext", non_transparent_theme)
             pywinstyles.change_header_color(get_hwnd(), color="#151515")
             #рамка окна тоже
         save_settings()
@@ -799,7 +839,7 @@ def load_new_images(file_path): #or just add directly in the window for the mome
     base_path = os.path.dirname(file_path)
     dpg.configure_item("list_window", label=base_path)
 
-    with dpg.texture_registry(show=True) as new_image_registry:
+    with dpg.texture_registry(show=False) as new_image_registry: #don't mak new every time
         pass
 
     img_tag1 = 0
@@ -932,7 +972,7 @@ def load_new_image(file_path):
     print("-------------------------------------------")
     configure_text(img_list[current_index])
     img_is_loaded = True
-    if not image_list_loaded:
+    if not image_list_loaded and useImagePreview:
         load_new_images(file_path)
 
 
@@ -1107,6 +1147,7 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
             #dpg.add_menu_item(label="AVG", callback=get_image_avg_col)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp2")
         with dpg.menu(label="View", tag="menu_btn3"):
+            dpg.add_menu_item(label="Preview", callback=MenuBar.show_preview_list)
             dpg.add_menu_item(label="Info", callback=MenuBar.show_info)
             dpg.add_menu_item(label="Message", callback=MenuBar.show_message)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp3")
@@ -1160,7 +1201,7 @@ no_bring_to_front_on_focus=True, no_resize=True):
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
 with dpg.window(label="list", tag="list_window", pos=[0,dpg.get_viewport_height()-225], width=dpg.get_viewport_width(), height=200,
-no_move=True, no_collapse=False,no_close=True,
+no_move=True, no_collapse=True,no_close=True,
 no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True) as list_images_window:
     #dpg.add_image("texture_tag", tag='main_img')
     with dpg.group(horizontal=True, parent=list_images_window) as images_horizontal:
