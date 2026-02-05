@@ -61,11 +61,12 @@ img_tag = 0
 int_img_tag = 0
 
 img_is_loaded = False
-
+#срывать list через таймер или через скалинг
 useImagePreview = True
 image_list_loaded = False
-image_from_list = []
+image_from_list = [] #передавать индекс в list
 image_items_tags = []
+image_item_tag = None
 custom_decorator = False
 
 image_path = None
@@ -824,7 +825,7 @@ def add_new_images_to_list(image):
     #with dpg.group(horizontal=True, parent=list_images_window) as images_horizontal:
     #    pass
 
-    image_item_tag = "list_img_item"
+    #image_item_tag = "list_img_item"
 
 
     image_item_tag = "list_img_item_"+str(image)
