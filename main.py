@@ -63,10 +63,12 @@ int_img_tag = 0
 img_is_loaded = False
 #срывать list через таймер или через скалинг
 useImagePreview = True
+current_selected_image_item = None
 image_list_loaded = False
 image_from_list = [] #передавать индекс в list
 image_items_tags = []
 image_item_tag = None
+image_list_frame_size = 10
 custom_decorator = False
 
 image_path = None
@@ -179,6 +181,16 @@ def dynamic_img_theme(rgb):
             dpg.add_theme_color(dpg.mvThemeCol_ResizeGripHovered, (0, 0, 0, 0))
             dpg.add_theme_color(dpg.mvThemeCol_ResizeGripActive, (0, 0, 0, 0))
 
+    with dpg.theme() as dynamic_button_theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (color[0]+75, color[1]+75, color[2]+75, 175))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (color[0]+25, color[1]+25, color[2]+25, 175))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (color[0]+25, color[1]+25, color[2]+25, 175))
+            #dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (0,0,255,0))
+            #dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (color[0]-25, color[1]-25, color[2]-25, 175))
+            #dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (color[0]-25, color[1]-25, color[2]-25, 175))
+
+
     dpg.bind_item_theme("main_window", dynamic_theme) #создавать мини окна от размера этого, а не от вьюпорта или экрана
     dpg.bind_item_theme("menu_bar", dynamic_theme)
     dpg.bind_item_theme("menu_btn1", dynamic_theme)
@@ -187,6 +199,7 @@ def dynamic_img_theme(rgb):
     dpg.bind_item_theme("menu_btn5", dynamic_theme)
     dpg.bind_item_theme("menu_btn6", dynamic_theme)
     dpg.bind_item_theme("list_window", dynamic_theme_tansparent)
+    dpg.bind_item_theme("images_horizontal_group", dynamic_button_theme)
     dpg.bind_theme(dynamic_theme)
 
 small_app_icon = resource_path("icons/16_ico_n.ico")
@@ -268,7 +281,10 @@ class MenuBar:
         dpg.show_item("cv_text")
 
     def show_preview_list():
-        dpg.show_item("list_window")
+        if dpg.is_item_visible("list_window"):
+            dpg.hide_item("list_window")
+        else:
+            dpg.show_item("list_window")
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog_ext")
@@ -291,19 +307,12 @@ class MenuBar:
     def msg_timer():
         if dpg.is_item_shown("message_window"):
             elapsed = time.perf_counter() - msg_timer_start
-            if elapsed >= 2.0:
+            if elapsed >= 2.5:
                 dpg.hide_item("message_window")
 
 
     def show_about():
         webbrowser.open("https://github.com/RetroMaidRage/RetroImageViewer")
-
-class cb_items:
-    @staticmethod
-    def checkbox_cd():
-        global show_wv
-        show_wv = not show_wv
-        print("There no config now. Checkbox: "+str(show_wv))
 
 class settings_ui:
     spacing = config.getboolean("UI", "isspacing")
@@ -412,6 +421,7 @@ class Controls:
     q_was_pressed = False
     s_was_pressed = False
     c_was_pressed = False
+
     la_was_pressed = False
     ra_was_pressed = False
 
@@ -420,9 +430,12 @@ class Controls:
     #    la_pressed = dpg.is_key_down(dpg.mvKey_Left)
 
         global current_index
-        if current_index > 0 and img_is_loaded:
-            current_index -= 1
+        if current_index > 0 and img_is_loaded and image_list_loaded:
+            if useImagePreview == False:
+                current_index -= 1
             if useThreading == True:
+                if useImagePreview == True:
+                    refresh_frame_list_prev()
                 t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
                 t1.start()
                 print("Thread loading: ", useThreading)
@@ -434,9 +447,12 @@ class Controls:
 
     def next_img():
         global current_index
-        if current_index < len(img_list) - 1 and img_is_loaded:
-            current_index += 1
+        if current_index < len(img_list) - 1 and img_is_loaded and image_list_loaded:
+            if useImagePreview == False:
+                current_index += 1
             if useThreading == True:
+                if useImagePreview == True:
+                    refresh_frame_list_next()
                 t1 = threading.Thread(target=load_new_image, args=(img_list[current_index],))
                 t1.start()
                 print("Thread loading: ", useThreading)
@@ -476,6 +492,11 @@ class Controls:
             else:
                 dpg.hide_item("info_window")
         Controls.w_was_pressed = w_pressed
+
+        q_pressed = dpg.is_key_down(dpg.mvKey_Q)
+        if q_pressed and not Controls.q_was_pressed:
+            MenuBar.show_preview_list()
+        Controls.q_was_pressed = q_pressed
 
     def scaling(s, a):
         global scale
@@ -808,35 +829,80 @@ def remove_old_images_from_list():
         for img_l in image_items_tags:
             dpg.delete_item(img_l)
             print("Deleted image item from list: ", img_l)
+        else:
+            pass
 
     if image_from_list is not None:
         for img_l1 in image_from_list:
             dpg.delete_item(img_l1)
             print("Deleted image from list: ", img_l1)
+        else:
+            pass
 
     image_items_tags.clear()
     image_from_list.clear()
 
 
 
-def add_new_images_to_list(image):
-    global image_items_tags
+def add_new_images_to_list(image, index):
+    global image_items_tags, current_selected_image_item
 
-    #with dpg.group(horizontal=True, parent=list_images_window) as images_horizontal:
-    #    pass
-
-    #image_item_tag = "list_img_item"
-
-
-    image_item_tag = "list_img_item_"+str(image)
+    image_item_tag = f"list_img_item_{index}"
     image_items_tags.append(image_item_tag)
-    dpg.add_image(image, parent=images_horizontal, tag=image_item_tag)
+    if current_index == index:
+        dpg.add_image_button(image, parent=images_horizontal,
+        callback= open_image_from_list, user_data = index, #предать в глоаб и потом изменить
+        tag=image_item_tag, frame_padding=image_list_frame_size)
+        current_selected_image_item = image_item_tag
+    else:
+        dpg.add_image_button(image, parent=images_horizontal,
+        callback= open_image_from_list, user_data = index,
+        tag=image_item_tag, frame_padding=1)
+
+
+def open_image_from_list(sender, app_data, index):
+
+    global current_index, current_selected_image_item
+    current_index = index
+
+    dpg.configure_item(sender, frame_padding=image_list_frame_size)
+
+    if current_selected_image_item is not None:
+        dpg.configure_item(current_selected_image_item, frame_padding=1) #to global for hange with buttons
+
+    current_selected_image_item = sender
+    print("ikgkigiggeg", current_selected_image_item)
+    load_new_image(img_list[current_index])
+
+def refresh_frame_list_prev():
+    global current_selected_image_item, current_index
+    old_item = current_selected_image_item
+
+    dpg.configure_item(old_item, frame_padding=1)
+
+    if current_index >= 0:
+        current_index -= 1
+        new_item = image_items_tags[current_index]
+        dpg.configure_item(new_item, frame_padding=image_list_frame_size)
+        current_selected_image_item = new_item
+
+def refresh_frame_list_next(): #just call for next_img without changing index
+    global current_selected_image_item, current_index
+    old_item = current_selected_image_item
+
+    dpg.configure_item(old_item, frame_padding=1)
+
+    if current_index + 1 < len(image_items_tags):
+        current_index += 1
+        new_item = image_items_tags[current_index]
+        dpg.configure_item(new_item, frame_padding=image_list_frame_size)
+        current_selected_image_item = new_item
 
 def load_new_images(file_path): #or just add directly in the window for the moment
     global image_list_loaded, image_from_list
-    remove_old_images_from_list()
 
-    directory_files = []
+    remove_old_images_from_list()
+    MenuBar.show_message("Image list\nLoading started...")
     base_path = os.path.dirname(file_path)
     dpg.configure_item("list_window", label=base_path)
 
@@ -844,47 +910,51 @@ def load_new_images(file_path): #or just add directly in the window for the mome
         pass
 
     img_tag1 = 0
-    new_img_tag_str = "t"
+    new_img_tag_str = ""
     width1, height1, channels1, data1 = None, None, None, None
-    directory = os.listdir(base_path)
     image_from_list = []
 
-    for file in directory:
-        if file.lower().endswith((".jpg", ".png")):
-            directory_files.append(file)
-            print(file)
-            absfile = os.path.join(base_path, file)
-            print(absfile)
-            img_tag1 +=1
-            new_img_tag_str = "img_list_"+str(img_tag1)
+    img_list = sorted([
+    os.path.abspath(os.path.join(base_path, f))
+    for f in os.listdir(base_path)
+    if f.lower().endswith((".jpg", ".png"))
+    ])
 
-            if useOpenCV == True:
-                start = time.perf_counter()
-                loaded1_image = opencv_image_list(absfile)
-                end = time.perf_counter()
-                print(f"\nOpenCV image opening time: {end - start:.6f} sec.")
-                width1, height1, channels1, data1 = loaded1_image
-                image_from_list.append(new_img_tag_str)
-            else:
-                start = time.perf_counter()
-                loaded1_image = dpg.load_image(absfile)
-                end = time.perf_counter()
-                print(f"\nDPG image opening time: {end - start:.6f} sec.")
-                width1, height1, channels1, data1 = loaded1_image
-                image_from_list.append(new_img_tag_str)
+    for index, absfile in enumerate(img_list):
+        img_tag1 +=1
+        new_img_tag_str = "img_list_"+str(img_tag1)
+
+        if useOpenCV == True:
+            start = time.perf_counter()
+            loaded1_image = opencv_image_list(absfile)
+            end = time.perf_counter()
+    #        print(f"\nOpenCV image opening time: {end - start:.6f} sec.")
+            width1, height1, channels1, data1 = loaded1_image
+            image_from_list.append(new_img_tag_str)
+        else:
+            start = time.perf_counter()
+            loaded1_image = dpg.load_image(absfile)
+            end = time.perf_counter()
+    #        print(f"\nDPG image opening time: {end - start:.6f} sec.")
+            width1, height1, channels1, data1 = loaded1_image
+            image_from_list.append(new_img_tag_str)
 
 
-            print(f"Adding texture {new_img_tag_str}: width={width1}, height={height1}, channels={channels1}, data_len={len(data1)}")
+    #    print(f"Adding texture {new_img_tag_str}: width={width1}, height={height1}, channels={channels1}, data_len={len(data1)}")
                 #if
 
-            start_i = time.perf_counter()
-            dpg.add_static_texture(width=width1, height=height1, default_value=data1, tag=new_img_tag_str, parent=new_image_registry)
-            add_new_images_to_list(new_img_tag_str)
-            end_i = time.perf_counter()
-            print(f"Static textures processing time:  {end_i - start_i:.6f}")
+
+        #start_i = time.perf_counter()
+        dpg.add_static_texture(width=width1, height=height1, default_value=data1, tag=new_img_tag_str, parent=new_image_registry)
+        images_list_path = absfile
+        add_new_images_to_list(new_img_tag_str, index)
+        #end_i = time.perf_counter()
+    #    print(f"Static textures processing time:  {end_i - start_i:.6f}")
 
     #add_new_images_to_list(image_from_list)
     image_list_loaded = True
+    MenuBar.show_message("Image list loaded.")
+    print("Image list loaded.")
 
 def load_new_image(file_path):
     global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, img_channels, img_data, img_avg_col, img_is_loaded
@@ -1203,9 +1273,9 @@ no_bring_to_front_on_focus=True, no_resize=True):
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
 with dpg.window(label="list", tag="list_window", pos=[0,dpg.get_viewport_height()-225], width=dpg.get_viewport_width(), height=200,
 no_move=True, no_collapse=True,no_close=True,
-no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True) as list_images_window:
+no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True, show=useImagePreview) as list_images_window:
     #dpg.add_image("texture_tag", tag='main_img')
-    with dpg.group(horizontal=True, parent=list_images_window) as images_horizontal:
+    with dpg.group(horizontal=True, parent=list_images_window, tag="images_horizontal_group") as images_horizontal:
         pass
     #dpg.add_image("texture_tag", tag='list_img')
 
@@ -1239,7 +1309,7 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
 , width=600, height=800):
         with dpg.group(tag="settings_group"):
              dpg.add_text("Menu panel", tag="settings_text")
-             dpg.add_checkbox(label="Use custom decorator", tag="checkbox_1", callback=cb_items.checkbox_cd)
+             dpg.add_checkbox(label="Use custom decorator", tag="checkbox_1", callback=print_me)
              with dpg.group(tag="settings_group1"):
                  dpg.add_checkbox(label="Menu spacing", tag="checkbox_2", default_value = settings_ui.spacing, callback=settings_ui.menu_bar_spacing)
                  dpg.add_slider_float(label="Spacing", width=200, min_value=0.00, max_value=400.00, default_value=settings_ui.spacing_set, callback=settings_ui.menu_bar_spacing_set)
@@ -1273,6 +1343,9 @@ pos=[(dpg.get_viewport_width()-600)/2, (dpg.get_viewport_height()-800)/2]
                      dpg.add_combo(keys, label="+", default_value="mvKey_LAlt", tag="all_keys2", width =200)
                      dpg.add_combo(keys, label="Info Window", default_value="mvKey_W", tag="all_keys3",  width =200)
                  with dpg.group(horizontal=True):
+                     dpg.add_combo(keys, label="+", default_value="mvKey_LAlt", tag="all_keys17", width =200)
+                     dpg.add_combo(keys, label="Preview Window", default_value="mvKey_Q", tag="all_keys18",  width =200)
+                 with dpg.group(horizontal=True):
                      dpg.add_combo(keys, label="+", default_value="mvKey_LControl", tag="all_keys11", width =200)
                      dpg.add_combo(keys, label="Save as", default_value="mvKey_C", tag="all_keys12",  width =200)
                  with dpg.group(horizontal=True):
@@ -1295,7 +1368,7 @@ if show_wv == True:
 with dpg.window(label="Message",no_move=True, no_focus_on_appearing= True,
  no_collapse=True, no_close=True, no_resize=True, no_title_bar=False,
   show=False, tag="message_window",
-   pos=[dpg.get_viewport_width()/1.125, dpg.get_viewport_height()/18], width=200, height=20):
+   pos=[dpg.get_viewport_width()/1.1299, dpg.get_viewport_height()/18], width=200, height=20):
     dpg.add_text("", tag="message_text")
 
 with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag="file_dialog", width=screen_w//2, height=screen_h//2):
@@ -1380,7 +1453,7 @@ def image_resize2():
     print("Scale: ", scale)
 
 
-def on_resize(sender, app_data):
+def on_resize(sender, app_data): #add img_list
     global img_aspectratio, loaded_image, image_path, current_img_w, current_img_h, current_img_pos_x, current_img_pos_y, scale
     viewport_width = dpg.get_viewport_width()
     viewport_height = dpg.get_viewport_height()
