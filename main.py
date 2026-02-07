@@ -55,7 +55,7 @@ SW_SHOWDEFAULT = 10
 
 isMaximized = False
 isMaximized_xd = False
-dragging = False
+isDragging = False
 
 img_tag = 0
 int_img_tag = 0
@@ -69,7 +69,10 @@ image_from_list = [] #передавать индекс в list
 image_items_tags = []
 image_item_tag = None
 image_list_frame_size = 10
+is_frame_refreshed = False
+#проверка на нажатие предмета что бы не менять рамку
 custom_decorator = False
+
 
 image_path = None
 show_wv = True
@@ -180,6 +183,11 @@ def dynamic_img_theme(rgb):
             dpg.add_theme_color(dpg.mvThemeCol_ResizeGrip, (0, 0, 0, 0))
             dpg.add_theme_color(dpg.mvThemeCol_ResizeGripHovered, (0, 0, 0, 0))
             dpg.add_theme_color(dpg.mvThemeCol_ResizeGripActive, (0, 0, 0, 0))
+
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, (color[0]-25, color[1]-25, color[2]-25, 200))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, (color[0], color[1], color[2], 200))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, (color[0]+15, color[1]+15, color[2]+15, 200))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, (color[0]+15, color[1]+15, color[2]+15, 200))
 
     with dpg.theme() as dynamic_button_theme:
         with dpg.theme_component(dpg.mvAll):
@@ -446,7 +454,7 @@ class Controls:
             #print("Image index: ", current_index)
 
     def next_img():
-        global current_index
+        global current_index, img_num
         if current_index < len(img_list) - 1 and img_is_loaded and image_list_loaded:
             if useImagePreview == False:
                 current_index += 1
@@ -498,6 +506,28 @@ class Controls:
             MenuBar.show_preview_list()
         Controls.q_was_pressed = q_pressed
 
+    def mouse_drag_handler(sender, app_data, user_data):
+        global isDragging, last_x
+        #print("eeee")
+        current_scroll = dpg.get_x_scroll("list_window")
+        if isDragging:
+            print("t")
+            dpg.set_x_scroll("list_window", current_scroll+15)
+
+
+
+    def mouse_down_handler(sender, app_data, user_data):
+        global isDragging, last_x
+        if app_data and isDragging is False:
+            print("2")
+            isDragging = True
+
+    def mouse_release_handler(sender, app_data, user_data):
+        global isDragging
+        if app_data == dpg.mvMouseButton_Left:
+            isDragging = False
+            print("P", isDragging)
+
     def scaling(s, a):
         global scale
         if is_window_open():
@@ -547,14 +577,6 @@ class OpenCV:
         average_color = np.average(average_color_row, axis=0)
         #print(average_color)
         return average_color
-
-    def main_color():
-        global img
-        small_img = cv2.resize(img, (250, 250))
-        mean_colors = cv2.mean(small_img)[:3]
-        b, g, r = mean_colors
-        print("main",r,g,b)
-        #return main_color
 
     def openCVRGB_Shift():
         global img
@@ -843,8 +865,7 @@ def remove_old_images_from_list():
     image_from_list.clear()
 
 
-
-def add_new_images_to_list(image, index):
+def add_images_to_list(image, index):
     global image_items_tags, current_selected_image_item
 
     image_item_tag = f"list_img_item_{index}"
@@ -854,6 +875,7 @@ def add_new_images_to_list(image, index):
         callback= open_image_from_list, user_data = index, #предать в глоаб и потом изменить
         tag=image_item_tag, frame_padding=image_list_frame_size)
         current_selected_image_item = image_item_tag
+
     else:
         dpg.add_image_button(image, parent=images_horizontal,
         callback= open_image_from_list, user_data = index,
@@ -866,24 +888,45 @@ def open_image_from_list(sender, app_data, index):
     current_index = index
 
     dpg.configure_item(sender, frame_padding=image_list_frame_size)
+    refresh_frame_pos(sender)
 
     if current_selected_image_item is not None:
         dpg.configure_item(current_selected_image_item, frame_padding=1) #to global for hange with buttons
-
     current_selected_image_item = sender
     print("ikgkigiggeg", current_selected_image_item)
     load_new_image(img_list[current_index])
 
+
+def refresh_frame_pos(item):
+    global is_frame_refreshed
+    item_pos = dpg.get_item_pos(item)
+    item_width = dpg.get_item_width(item)
+
+    win_width = dpg.get_item_width("list_window")
+
+    target_scroll_x = item_pos[0] + item_width/2 - win_width/2
+
+    max_scroll = dpg.get_x_scroll_max("list_window")
+    target_scroll_x = max(0, min(target_scroll_x, max_scroll))
+
+    dpg.set_x_scroll("list_window", target_scroll_x)
+
+    #is_frame_refreshed = True
+
+
 def refresh_frame_list_prev():
     global current_selected_image_item, current_index
     old_item = current_selected_image_item
+
 
     dpg.configure_item(old_item, frame_padding=1)
 
     if current_index >= 0:
         current_index -= 1
         new_item = image_items_tags[current_index]
+
         dpg.configure_item(new_item, frame_padding=image_list_frame_size)
+        refresh_frame_pos(new_item)
         current_selected_image_item = new_item
 
 def refresh_frame_list_next(): #just call for next_img without changing index
@@ -896,9 +939,12 @@ def refresh_frame_list_next(): #just call for next_img without changing index
         current_index += 1
         new_item = image_items_tags[current_index]
         dpg.configure_item(new_item, frame_padding=image_list_frame_size)
+        refresh_frame_pos(new_item)
         current_selected_image_item = new_item
 
 def load_new_images(file_path): #or just add directly in the window for the moment
+    dpg.show_item("list_window")
+    gstart = time.perf_counter()
     global image_list_loaded, image_from_list
 
     remove_old_images_from_list()
@@ -947,13 +993,16 @@ def load_new_images(file_path): #or just add directly in the window for the mome
         #start_i = time.perf_counter()
         dpg.add_static_texture(width=width1, height=height1, default_value=data1, tag=new_img_tag_str, parent=new_image_registry)
         images_list_path = absfile
-        add_new_images_to_list(new_img_tag_str, index)
+        add_images_to_list(new_img_tag_str, index)
         #end_i = time.perf_counter()
     #    print(f"Static textures processing time:  {end_i - start_i:.6f}")
 
-    #add_new_images_to_list(image_from_list)
+    #add_images_to_list(image_from_list)
+    gend = time.perf_counter()
+    calculated_time = gend - gstart
+    print(f"\nList loading time: {calculated_time:.3f} sec.")
     image_list_loaded = True
-    MenuBar.show_message("Image list loaded.")
+    MenuBar.show_message(f"Image list loaded.\nTime: {calculated_time:.3f} sec.")
     print("Image list loaded.")
 
 def load_new_image(file_path):
@@ -1095,10 +1144,11 @@ def open_image(sender, app_data, cancel):
     load_new_image(img_list[current_index])
 
 def open_image_tk(sender=None, app_data=None, cancel=False):
-    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index, image_list_loaded
+    global img_tag, img_aspectratio, loaded_image, image_path, img_width, img_height, img_list, img_name, current_index, image_list_loaded, is_frame_refreshed
     app_data = CreateFileDialog_Open()
 
     image_list_loaded = False
+    is_frame_refreshed = False
 
     #remove_old_images_from_list()
 
@@ -1271,12 +1321,16 @@ no_bring_to_front_on_focus=True, no_resize=True):
 
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
-with dpg.window(label="list", tag="list_window", pos=[0,dpg.get_viewport_height()-225], width=dpg.get_viewport_width(), height=200,
+with dpg.window(label="", tag="list_window", pos=[0,dpg.get_viewport_height()-225], width=dpg.get_viewport_width(), height=200,
 no_move=True, no_collapse=True,no_close=True,
-no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True, show=useImagePreview) as list_images_window:
+no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True, show=False) as list_images_window:
     #dpg.add_image("texture_tag", tag='main_img')
     with dpg.group(horizontal=True, parent=list_images_window, tag="images_horizontal_group") as images_horizontal:
         pass
+
+    with dpg.item_handler_registry(tag="list_scrolling"):
+        pass
+
     #dpg.add_image("texture_tag", tag='list_img')
 
 with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
@@ -1477,6 +1531,7 @@ def on_resize(sender, app_data): #add img_list
     dpg.set_item_width("main_window", viewport_width)
     dpg.set_item_height("main_window", viewport_height)
     dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x, y])
+    dpg.configure_item("list_window", pos=[0,dpg.get_viewport_height()-245], width=dpg.get_viewport_width(), height=200)
 
     #print(f"""Image size after resize: {str(int(img_w))}x{img_h}""")
     if image_path is not None:
@@ -1622,6 +1677,9 @@ with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_LAlt, callback=Controls.alt_keys)
     dpg.add_key_press_handler(dpg.mvKey_Return, callback=Window.maximize_window)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
+    #dpg.add_mouse_drag_handler(callback=Controls.mouse_drag_handler, user_data="list_window")
+    #dpg.add_mouse_down_handler(callback=Controls.mouse_down_handler, user_data="list_window", button=dpg.mvMouseButton_Left)
+    #dpg.add_mouse_release_handler(callback=Controls.mouse_release_handler, user_data="list_window", button=dpg.mvMouseButton_Left)
     #dpg.add_mouse_move_handler(callback=dpg_quad)
 
 
@@ -1632,6 +1690,7 @@ with dpg.item_handler_registry(tag="inf_resize"):
 dpg.bind_item_handler_registry("info_window", "inf_resize")
 
 dpg.set_frame_callback(1, callback=lambda s, a, u: user32.ShowWindow(get_hwnd(), SW_MAXIMIZE))
+
 #dpg.add_render_callback(5, tag="msg_timer1", callback=MenuBar.msg_timer)
 dpg.set_viewport_resize_callback(on_resize)
 on_resize(None, None)
@@ -1651,6 +1710,10 @@ while dpg.is_dearpygui_running():
         elapsed = time.perf_counter() - msg_timer_start
         if elapsed >= 1.5:
             dpg.hide_item("message_window")
+
+    if image_list_loaded and not is_frame_refreshed:
+        refresh_frame_pos(current_selected_image_item)
+        is_frame_refreshed = True
 
     dpg.render_dearpygui_frame()  # отрисовывает фрейм
 
