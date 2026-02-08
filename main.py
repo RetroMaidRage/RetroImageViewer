@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
-from file_browser import FileBrowser
 
+from file_browser import FileBrowser
 from keys import keys
 from tk_file_dialog import CreateFileDialog_Open, CreateFileDialog_SaveToFolder
 
@@ -47,6 +47,7 @@ if not os.path.exists(resource_path("output")):
 else:
     print("Output folder detected.")
 
+img_l = None
 
 SW_MINIMIZE = 6
 SW_RESTORE = 9
@@ -63,6 +64,7 @@ int_img_tag = 0
 img_is_loaded = False
 #срывать list через таймер или через скалинг
 useImagePreview = True
+isPreviewDisabled = False
 current_selected_image_item = None
 image_list_loaded = False
 image_from_list = [] #передавать индекс в list
@@ -73,6 +75,8 @@ is_frame_refreshed = False
 #проверка на нажатие предмета что бы не менять рамку
 custom_decorator = False
 
+isEditMode = True
+isEditModeEnabled = False
 
 image_path = None
 show_wv = True
@@ -172,6 +176,21 @@ def dynamic_img_theme(rgb):
             pywinstyles.change_header_color(get_hwnd(), color=rgb2hex(img_avg_col2))
             pywinstyles.change_title_color(get_hwnd(), color="white")
 
+    with dpg.theme() as dynamic_theme_node:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvNodeCol_GridBackground,  (color[0]-35,color[1]-35,color[2]-35),category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_GridLine, (color[0]-55,color[1]-65,color[2]-55), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBar, (color[0], color[1], color[2], 175), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, (color[0], color[1], color[2], 200), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, (color[0], color[1], color[2], 215), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeOutline, (color[0], color[1], color[2], 0), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground,  (0,0,0, 150), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundHovered,  (0,0,0, 150), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected,  (0,0,0, 150), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_Pin,  (color[0], color[1], color[2], 255), category=dpg.mvThemeCat_Nodes)
+
+
+
     with dpg.theme() as dynamic_theme_tansparent:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (color[0], color[1], color[2], 100))
@@ -208,6 +227,8 @@ def dynamic_img_theme(rgb):
     dpg.bind_item_theme("menu_btn6", dynamic_theme)
     dpg.bind_item_theme("list_window", dynamic_theme_tansparent)
     dpg.bind_item_theme("images_horizontal_group", dynamic_button_theme)
+    dpg.bind_item_theme("img_node_window", dynamic_theme_node)
+    dpg.bind_item_theme("node_window", dynamic_theme_node)
     dpg.bind_theme(dynamic_theme)
 
 small_app_icon = resource_path("icons/16_ico_n.ico")
@@ -289,10 +310,34 @@ class MenuBar:
         dpg.show_item("cv_text")
 
     def show_preview_list():
+        global isPreviewDisabled
         if dpg.is_item_visible("list_window"):
             dpg.hide_item("list_window")
+            isPreviewDisabled = True
         else:
+            isPreviewDisabled = False
             dpg.show_item("list_window")
+
+
+    def show_edit_mode():
+        global isEditModeEnabled, isPreviewDisabled
+        isPreviewDisabled = not isPreviewDisabled
+        if isEditMode:
+            if dpg.is_item_visible("img_node_window"):
+                dpg.hide_item("img_node_window")
+                dpg.hide_item("node_window")
+            else:
+                isEditModeEnabled = True
+                dpg.show_item("img_node_window")
+                dpg.show_item("node_window")
+
+    def show_node_list():
+        if dpg.is_item_visible("node_add_window"):
+            dpg.hide_item("node_add_window")
+                #dpg.hide_item("node_add_window")
+        else:
+            dpg.show_item("node_add_window")
+                #dpg.show_item("node_add_window")
 
     def show_dialogue(sender):
         dpg.show_item("file_dialog_ext")
@@ -542,6 +587,11 @@ class Controls:
             scale = max(0.1, scale)
             print("scale +")
             image_resize()
+        if scale >= 0.9 and not isPreviewDisabled:
+            print("limit")
+            dpg.hide_item("list_window")
+        elif scale <= 0.8 and not isPreviewDisabled:
+            dpg.show_item("list_window")
 
 
 class OpenCV:
@@ -667,6 +717,133 @@ class OpenCV:
         img = img[y1:y2, x1:x2]
         update_texture_from_memory()
 
+class NodeEditor:
+    def __init__(self):
+        self.links = {}  # словарь связей конкретного объекта]
+        #self.node_types = {}
+        self.position_x = 0
+        self.position_y = 0
+        self.node_types = {
+            "node0": {"type": "input", "name": "Start"},
+            "node1": {"type": "effect", "name": "Rotate 90"},
+            "node2": {"type": "effect", "name": "Rotate -90"},
+            "node3": {"type": "effect", "name": "Grayscale"},
+            "node4": {"type": "effect", "name": "RGB Shift"},
+            "node5": {"type": "effect", "name": "Noise"},
+            "node6": {"type": "effect", "name": "Edge Detection"},
+            "node7": {"type": "effect", "name": "Add Text"},
+            "node8": {"type": "effect", "name": "Crop"},
+            "node9": {"type": "effect", "name": "Remove Text"},
+            "node10": {"type": "effect", "name": "Vision"},
+            "node11": {"type": "effect", "name": "Add Text"},
+            "node12": {"type": "effect", "name": "Add Text"},
+        }
+
+
+    def add_node(self, tag, node_type, node_name): #1 тэг 2 тип 'node1': 'input'
+        self.position_x += 50
+        self.position_y += 50
+
+        self.node_types[tag] = {
+            "type": node_type,
+            "name": node_name
+        }
+
+        if node_type == "input":
+            attr_type = dpg.mvNode_Attr_Output
+            with dpg.node(label=f"{node_name} ({node_type})", tag=tag, pos=[self.position_x,self.position_y], parent=node_editor_tag):
+                with dpg.node_attribute(attribute_type=attr_type):
+                    dpg.add_text(f"{node_type.capitalize()} Attribute")
+
+        elif node_type == "effect":
+            attr_type = dpg.mvNode_Attr_Input
+            attr_type1 = dpg.mvNode_Attr_Output
+
+            with dpg.node(label=f"{node_name} ({node_type})", tag=tag, parent=node_editor_tag):
+                with dpg.node_attribute(attribute_type=attr_type):
+                    dpg.add_text(f"In {node_name}") #добавлять ноды через контрол а и потом в селекторе выбирать
+
+                with dpg.node_attribute(attribute_type=attr_type1):
+                    dpg.add_text(f"Out {node_name}")
+
+
+        elif node_type == "output":
+            attr_type = dpg.mvNode_Attr_Input
+            with dpg.node(label=f"{node_name} ({node_type})", tag=tag, parent=node_editor_tag):
+                with dpg.node_attribute(attribute_type=attr_type):
+                    dpg.add_text(f"{node_type.capitalize()} Attribute")
+
+
+    def link_callback(self, sender, app_data):
+        link_id = dpg.add_node_link(app_data[0], app_data[1], parent=sender)
+        self.links[link_id] = (app_data[0], app_data[1])
+
+        print(self.links)
+        self.node_logic(app_data[0], app_data[1])
+
+    def delink_callback(self, sender, app_data):
+        if app_data in self.links:
+            print("Delinked: ", self.links[app_data])
+            del self.links[app_data]
+        dpg.delete_item(app_data)
+
+    def node_logic(self, output_attr, input_attr):
+        output_node_id = dpg.get_item_parent(output_attr)
+        input_node_id = dpg.get_item_parent(input_attr)
+
+        output_node = dpg.get_item_alias(output_node_id)
+        input_node = dpg.get_item_alias(input_node_id)
+
+        output_type = self.node_types[output_node]["type"]
+        output_name = self.node_types[output_node]["name"]
+
+        input_type = self.node_types[input_node]["type"]
+        input_name = self.node_types[input_node]["name"]
+        print("o", output_type, "i", input_type)
+
+        if (output_type == "input" and input_type == "effect") or (output_type == "effect" and input_type == "effect") :
+            print(f"do: {output_name} → {input_name}")
+            print("input_name", input_name)
+            if input_name == "Rotate 90":
+                OpenCV.openCVRotate90()
+            if input_name == "Rotate -90":
+                OpenCV.openCVRotateM90()
+            if input_name == "Grayscale":
+                OpenCV.openCVGrayscale()
+            if input_name == "RGB Shift":
+                MenuBar.show_edit_rgb_shift()
+            if input_name == "Noise":
+                OpenCV.openCVNoise()
+            if input_name == "Edge Detection":
+                MenuBar.show_edge_detection()
+            if input_name == "Add Text":
+                MenuBar.show_edit_text()
+            if input_name == "Crop":
+                OpenCV.openCVGrayscale()
+            if input_name == "Remove Text":
+                OpenCV.openCVGrayscale()
+            if input_name == "Vision":
+                OpenCV.openCVGrayscale()
+
+        elif output_type == "effect" and input_type == "output":
+            print(f"send: {output_name} → {input_name}")
+
+        else:
+            print(f"save: {output_name} → {input_name}")
+
+
+    def make_node(self):
+        selected_node = dpg.get_value("node_combo")
+
+        name, rest = selected_node.split(" (")
+        tag = selected_node.split(" (")[0]
+        rest = rest.rstrip(")")  # убираем закрывающую скобку
+        type, name = [x.strip() for x in rest.split(",")]
+        print(tag, type, name)
+        self.add_node(tag, type, name) #1 тэг 2 тип 'node1': 'input'
+
+
+editor = NodeEditor()
 
 def dpg_quad():
     mx, my = dpg.get_mouse_pos()
@@ -687,6 +864,7 @@ def is_window_open():
         dpg.is_item_shown("file_dialog") or
         dpg.is_item_shown("settings_window") or
         dpg.is_item_shown("welcome_window") or
+        dpg.is_item_shown("node_add_window") or
         dpg.is_item_shown("file_dialog_ext")
     )
 
@@ -791,7 +969,7 @@ def opencv_image(file_path):
     return width, height, channels, data
 
 def opencv_image_list(file_path):
-    global img, img_list_width, img_list_height
+    global img_l, img_list_width, img_list_height
 
     cv_img = None
     cv_img = cv2.imread(file_path)
@@ -799,9 +977,9 @@ def opencv_image_list(file_path):
     if cv_img is None:
         cv_img = opencv_unicode(file_path)
 
-    img = cv_img        # BGR
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
-    height, width, channels = img.shape
+    img_l = cv_img        # BGR
+    img_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2RGBA)
+    height, width, channels = img_l.shape
     height_i, width_i = height, width
 
     max_side = max(width_i, height_i)
@@ -809,11 +987,11 @@ def opencv_image_list(file_path):
     new_width = int(width_i * scale)
     new_height = int(height_i * scale)
     print(f"Rescaled image list resolution: {new_width}x{new_height}")
-    img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    img_l = cv2.resize(img_l, (new_width, new_height), interpolation=cv2.INTER_AREA)
     height, width = new_height, new_width
     img_list_width = width
     img_list_height = height
-    data = img.flatten() / 255.0
+    data = img_l.flatten() / 255.0
     return width, height, channels, data
 
 def update_texture_from_memory():
@@ -834,6 +1012,7 @@ def update_texture_from_memory():
         dpg.add_static_texture(width=img_width, height=img_height, default_value=data, tag=new_img_tag)
 
     dpg.configure_item("main_img", texture_tag=new_img_tag)
+    dpg.configure_item("node_img", texture_tag=new_img_tag)
 
     if dpg.does_item_exist(old_img_tag):
         dpg.delete_item(old_img_tag)
@@ -1075,6 +1254,31 @@ def load_new_image(file_path):
         start_i = time.perf_counter()
         dpg.add_static_texture(width=width, height=height, default_value=data, tag=new_img_tag)
         dpg.configure_item("main_img", texture_tag=new_img_tag,  pos=[x,y], width=img_w, height=img_h)
+        if isEditMode:
+            img_channels = channels
+            img_width, img_height = width, height
+            img_aspectratio = width / height
+            img_data = data
+
+            viewport_width = dpg.get_item_width("img_node_window")
+            viewport_height = dpg.get_item_height("img_node_window")
+
+            available_height = viewport_height
+            available_width = viewport_width
+
+            aspect_img = img_aspectratio
+            aspect_view = available_width / available_height
+
+            if aspect_img > aspect_view:
+                img_w = available_width*scale
+                img_h = img_w / aspect_img
+            else:
+                img_h = available_height*scale #добавить в open image
+                img_w = img_h * aspect_img
+
+            x = (viewport_width - img_w) / 2
+            y = (available_height - img_h) / 2 + title_offset
+            dpg.configure_item("node_img", texture_tag=new_img_tag,  pos=[x,y-title_offset], width=img_w, height=img_h)
         end_i = time.perf_counter()
         print(f"Static texture processing time:  {end_i - start_i:.6f}")
 
@@ -1092,7 +1296,7 @@ def load_new_image(file_path):
     print("-------------------------------------------")
     configure_text(img_list[current_index])
     img_is_loaded = True
-    if not image_list_loaded and useImagePreview:
+    if not image_list_loaded and useImagePreview: #threading
         load_new_images(file_path)
 
 
@@ -1270,6 +1474,7 @@ with dpg.viewport_menu_bar(tag="menu_bar") as view_menu_bar:
         with dpg.menu(label="View", tag="menu_btn3"):
             dpg.add_menu_item(label="Preview", callback=MenuBar.show_preview_list)
             dpg.add_menu_item(label="Info", callback=MenuBar.show_info)
+            dpg.add_menu_item(label="Edit mode", callback=MenuBar.show_edit_mode)
             dpg.add_menu_item(label="Message", callback=MenuBar.show_message)
         dpg.add_spacer(width=settings_ui.spacing_set, show=settings_ui.spacing, tag="sp3")
         dpg.add_menu_item(label="Settings", tag="menu_btn5", callback=MenuBar.show_settings)
@@ -1323,7 +1528,7 @@ no_bring_to_front_on_focus=True, no_resize=True):
         #dpg.draw_image("main_img_texture", [0,0], [600,400])
 with dpg.window(label="", tag="list_window", pos=[0,dpg.get_viewport_height()-225], width=dpg.get_viewport_width(), height=200,
 no_move=True, no_collapse=True,no_close=True,
-no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resize=True, show=False) as list_images_window:
+no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=False, no_resize=True, show=False) as list_images_window:
     #dpg.add_image("texture_tag", tag='main_img')
     with dpg.group(horizontal=True, parent=list_images_window, tag="images_horizontal_group") as images_horizontal:
         pass
@@ -1332,6 +1537,34 @@ no_scrollbar=False,horizontal_scrollbar=True, no_scroll_with_mouse=True, no_resi
         pass
 
     #dpg.add_image("texture_tag", tag='list_img')
+if isEditMode:
+    with dpg.window(label="Image", tag="img_node_window", pos=[0,title_offset+75], width=dpg.get_viewport_width()/2, height=dpg.get_viewport_height(),
+    no_scrollbar=True,horizontal_scrollbar=False, no_resize=False, no_close=True,  no_move=True, no_collapse=True,show=False):
+        dpg.add_image("texture_tag", tag='node_img')
+
+    with dpg.window(label="Node Editor", tag="node_window", pos=[dpg.get_viewport_width()/2,title_offset+75], width=dpg.get_viewport_width()/2-25, height=dpg.get_viewport_height(),
+    no_scrollbar=False,horizontal_scrollbar=True, no_resize=False, no_close=True, no_move=True, no_collapse=True,show=False):
+        with dpg.menu_bar():
+            dpg.add_menu_item(label="Add...", callback=MenuBar.show_node_list)
+
+        with dpg.node_editor(callback=lambda s,a: editor.link_callback(s,a),
+         delink_callback=lambda s,a: editor.delink_callback(s,a)) as node_editor_tag:
+            #editor.add_node("node0", "output", "Image")
+            editor.add_node("node0", "input", "Start")
+            #editor.add_node("node1", "effect", "Grayscale")
+
+    with dpg.window(label="Add node", tag="node_add_window", pos=[dpg.get_item_pos("node_window")[0]*1.35,dpg.get_item_pos("node_window")[1]*15] , width=400, height=200,
+    no_scrollbar=False,horizontal_scrollbar=True, no_resize=True, no_collapse=True,show=False, modal=True):
+        dpg.add_separator()
+        node_items = [f'{tag} ({data["type"]}, {data["name"]})' for tag, data in editor.node_types.items()]
+        #print(editor.node_types.items())
+        dpg.add_combo(node_items,label="Nodes",tag="node_combo",     callback=editor.make_node)
+
+
+
+    #dpg.add_image("texture_tag", tag='main_img')
+
+
 
 with dpg.window(label="", show=False, tag="file_dialog_ext", no_title_bar=True, width=1000,height=620,
  no_scrollbar=True, no_scroll_with_mouse=True,no_resize=True):
@@ -1419,9 +1652,9 @@ if show_wv == True:
         with dpg.group(horizontal=True, tag="info_group"):
             dpg.add_text("hello", tag="info_text")
 #ширина окна от ширины текста
-with dpg.window(label="Message",no_move=True, no_focus_on_appearing= True,
+with dpg.window(label="Message",no_move=True, no_focus_on_appearing= True, #создавать каждый раз
  no_collapse=True, no_close=True, no_resize=True, no_title_bar=False,
-  show=False, tag="message_window",
+  show=False, tag="message_window", #modal vindow
    pos=[dpg.get_viewport_width()/1.1299, dpg.get_viewport_height()/18], width=200, height=20):
     dpg.add_text("", tag="message_text")
 
@@ -1455,6 +1688,28 @@ def image_resize():
     ig = dpg.get_item_height("main_img")
 
     #print(iw,ig,viewport_width,viewport_height)
+    if isEditMode:
+        n_img_w, n_img_n = None, None
+        n_viewport_width = dpg.get_item_width("img_node_window")
+        n_viewport_height = dpg.get_item_height("img_node_window")
+
+        n_available_height = n_viewport_height - title_offset
+        n_available_width = n_viewport_width
+
+        n_aspect_img = img_aspectratio
+        n_aspect_view = n_available_width / n_available_height
+
+        if aspect_img > n_aspect_view:
+            n_img_w = n_available_width*scale
+            n_img_h = n_img_w / aspect_img
+        else:
+            n_img_h = n_available_height*scale #добавить в open image
+            n_img_w = n_img_h * aspect_img
+
+        n_x = (n_viewport_width - n_img_w) / 2
+        n_y = (n_available_height - n_img_h) / 2 + title_offset
+
+        dpg.configure_item("node_img", width=n_img_w, height=n_img_h, pos=[n_x,n_y])
 
     dpg.set_item_width("main_window", viewport_width)
     dpg.set_item_height("main_window", viewport_height*20)
@@ -1677,6 +1932,7 @@ with dpg.handler_registry():
     dpg.add_key_press_handler(dpg.mvKey_LAlt, callback=Controls.alt_keys)
     dpg.add_key_press_handler(dpg.mvKey_Return, callback=Window.maximize_window)
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
+    dpg.add_key_press_handler(dpg.mvKey_F, callback=MenuBar.show_edit_mode)
     #dpg.add_mouse_drag_handler(callback=Controls.mouse_drag_handler, user_data="list_window")
     #dpg.add_mouse_down_handler(callback=Controls.mouse_down_handler, user_data="list_window", button=dpg.mvMouseButton_Left)
     #dpg.add_mouse_release_handler(callback=Controls.mouse_release_handler, user_data="list_window", button=dpg.mvMouseButton_Left)
@@ -1698,7 +1954,7 @@ dpg.set_viewport_decorated(True)
 dpg.setup_dearpygui()
 #dpg.bind_font(default_font)
 dpg.show_viewport()
-#print(dpg.get_item_height("menu_bar"), "- Menu bar height")
+
 pywinstyles.change_header_color(get_hwnd(), color=rgb2hex((50, 50, 50)))
 
 if Theme.dynamic_theming == True and len(sys.argv) > 1:
@@ -1715,6 +1971,6 @@ while dpg.is_dearpygui_running():
         refresh_frame_pos(current_selected_image_item)
         is_frame_refreshed = True
 
-    dpg.render_dearpygui_frame()  # отрисовывает фрейм
+    dpg.render_dearpygui_frame()
 
 dpg.destroy_context()
