@@ -20,7 +20,7 @@ import random
 import threading
 from Font.funcs import putTTFText
 
-from PIL import Image
+from PIL import Image, ImageGrab
 
 cv2.putTTFText = putTTFText
 
@@ -41,8 +41,8 @@ screen_h = user32.GetSystemMetrics(1)
 def get_hwnd():
     return user32.FindWindowW(None, "RetroImageViewer")
 
-if not os.path.exists(resource_path("output")):
-    os.makedirs(resource_path("output"))
+if not os.path.exists(resource_path("output/.temp/")):
+    os.makedirs(resource_path("output/.temp/"))
     print("No output folder. Creating...")
 else:
     print("Output folder detected.")
@@ -75,6 +75,10 @@ is_frame_refreshed = False
 #проверка на нажатие предмета что бы не менять рамку
 custom_decorator = False
 
+CorrectMousePos = 0
+
+img_aspectratio = 0
+
 isEditMode = True
 isEditModeEnabled = False
 
@@ -89,9 +93,16 @@ resize_factor = 2.0
 
 img_save_num = 0
 img_channels = 0
+
 scale = 0.8675 #0.8645
 scale_mod = 1.15
 title_offset = -45
+offset_x = 0
+offset_y = 0
+mouse_start_x = 0
+mouse_start_y = 0
+move_multiplier = 1.75
+
 dynamic_theming = True
 
 msg_timer_start = 0
@@ -482,6 +493,7 @@ class Controls:
     q_was_pressed = False
     s_was_pressed = False
     c_was_pressed = False
+    v_was_pressed = False
 
     la_was_pressed = False
     ra_was_pressed = False
@@ -540,8 +552,12 @@ class Controls:
         c_pressed = dpg.is_key_down(dpg.mvKey_C)
         if c_pressed and not Controls.c_was_pressed:
             save_to_clipboard(image_path)
-            MenuBar.show_message("Copied")
         Controls.c_was_pressed = c_pressed
+
+        v_pressed = dpg.is_key_down(dpg.mvKey_V)
+        if v_pressed and not Controls.v_was_pressed:
+            read_from_clipboard()
+        Controls.v_was_pressed = v_pressed
 
 
     def alt_keys():
@@ -560,26 +576,33 @@ class Controls:
         Controls.q_was_pressed = q_pressed
 
     def mouse_drag_handler(sender, app_data, user_data):
-        global isDragging, last_x
-        #print("eeee")
-        current_scroll = dpg.get_x_scroll("list_window")
+        global isDragging
+        print(dpg.get_mouse_pos())
         if isDragging:
-            print("t")
-            dpg.set_x_scroll("list_window", current_scroll+15)
-
-
+            image_move()
+            #print("t")
+            #dpg.set_x_scroll("list_window", current_scroll+15)
 
     def mouse_down_handler(sender, app_data, user_data):
-        global isDragging, last_x
+        global isDragging, mouse_start_x, mouse_start_y
+        mx, my = dpg.get_mouse_pos(local=True)
+
+        vp_w = dpg.get_viewport_width()
+        vp_h = dpg.get_viewport_height()
+        if mx < 0 or my < 0 or mx > vp_w or my > vp_h:
+            print("Mouse coords invalid, ignoring:", mx, my)
+            return
+
+        mouse_start_x, mouse_start_y = dpg.get_mouse_pos()
         if app_data and isDragging is False:
-            print("2")
+            print("Mouse button down.", mouse_start_x, mouse_start_y)
             isDragging = True
 
     def mouse_release_handler(sender, app_data, user_data):
         global isDragging
         if app_data == dpg.mvMouseButton_Left:
             isDragging = False
-            print("P", isDragging)
+            print("Mouse released.", isDragging)
 
     def scaling(s, a):
         global scale
@@ -890,6 +913,22 @@ def is_window_open():
         dpg.is_item_shown("file_dialog_ext")
     )
 
+def read_from_clipboard():
+    global img_name, isPreviewDisabled
+    remove_old_images_from_list()
+
+    image = ImageGrab.grabclipboard()
+    if image is None:
+        print("No images in clipboard.")
+        return
+
+    img_name = "clipboard.png"
+    path = resource_path(f"output/.temp/{img_name}")
+    image.save(path)
+    load_new_image(path)
+    MenuBar.show_message("Opened.")
+
+
 def save_to_clipboard(filepath):
 
     image = Image.open(filepath)
@@ -903,6 +942,7 @@ def save_to_clipboard(filepath):
     win32clipboard.EmptyClipboard()
     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
     win32clipboard.CloseClipboard()
+    MenuBar.show_message("Copied.")
 
 def configure_text(file):
     window_width = dpg.get_item_width("info_window")
@@ -1316,10 +1356,19 @@ def load_new_image(file_path):
     print("-------------------------------------------")
     print(f"""Image: {img_name} | Res: {width}x{height} | Tag: {new_img_tag}""")
     print("-------------------------------------------")
-    configure_text(img_list[current_index])
+
+    try:
+         configure_text(img_list[current_index])
+    except IndexError:
+        configure_text(file_path)
+
     img_is_loaded = True
     if not image_list_loaded and useImagePreview: #threading
-        load_new_images(file_path)
+        if useThreading:
+            tt = threading.Thread(target=load_new_images, args=(file_path,))
+            tt.start()
+        else:
+            load_new_images(file_path)
 
 
 def open_image(sender, app_data, cancel):
@@ -1454,12 +1503,8 @@ def open_image_from_start(file_path): #debug index bug
     #print("index", current_index)
 
     image_path = file_path
-    if useThreading:
-        tt = threading.Thread(target=load_new_image, args=(img_list[current_index],))
-        tt.start()
-        print("Thread loading: ", useThreading)
-    else:
-        load_new_image(img_list[current_index])
+
+    load_new_image(img_list[current_index])
 
 
 dpg.create_context()
@@ -1690,26 +1735,30 @@ with dpg.file_dialog(directory_selector=False,show=False,callback=open_image,tag
     dpg.add_file_extension(".png", color=(144, 238, 143, 255))
 
 def image_resize():
-    global img_aspectratio
+    global img_aspectratio, offset_x, offset_y
     viewport_width = dpg.get_viewport_width()
     viewport_height = dpg.get_viewport_height()
 
     available_height = viewport_height - title_offset
     available_width = viewport_width
 
+    if img_aspectratio is None:
+        return
+
     aspect_img = img_aspectratio
     aspect_view = available_width / available_height
 
     if aspect_img > aspect_view:
-        img_w = available_width*scale
+        img_w = available_width * scale
         img_h = img_w / aspect_img
     else:
-        img_h = available_height*scale #добавить в open image
+        img_h = available_height * scale
         img_w = img_h * aspect_img
 
-    x = (viewport_width - img_w) / 2
-    y = (available_height - img_h) / 2 + title_offset
+    x = (viewport_width - img_w)/2 + offset_x
+    y = (available_height - img_h)/2 + title_offset + offset_y
 
+    print()
     iw = dpg.get_item_width("main_img")
     ig = dpg.get_item_height("main_img")
 
@@ -1741,7 +1790,24 @@ def image_resize():
     dpg.set_item_height("main_window", viewport_height*20)
     dpg.configure_item("main_img", width=img_w, height=img_h, pos=[x,y])
 
-    print("Scale: ", scale)
+def image_move():
+    global mouse_start_x, mouse_start_y, offset_x, offset_y, isDragging
+
+    if not isDragging:
+        return
+
+    mouse_pos_x, mouse_pos_y = dpg.get_mouse_pos()
+
+    dx = (mouse_pos_x - mouse_start_x)/2
+    dy = (mouse_pos_y - mouse_start_y)/2
+
+    offset_x += dx * move_multiplier
+    offset_y += dy * move_multiplier
+    print(mouse_pos_x, mouse_pos_y ,mouse_start_x, mouse_start_y, dx,dy, offset_x, offset_y)
+    mouse_start_x = mouse_pos_x
+    mouse_start_y = mouse_pos_y
+
+    image_resize()
 
 def image_resize2():
     global img_aspectratio
@@ -1994,9 +2060,9 @@ with dpg.handler_registry():
     dpg.add_mouse_wheel_handler(callback=Controls.scaling)
     dpg.add_key_press_handler(dpg.mvKey_F, callback=MenuBar.show_edit_mode)
     dpg.add_key_press_handler(dpg.mvKey_Delete, callback=editor.delete_node)
-    #dpg.add_mouse_drag_handler(callback=Controls.mouse_drag_handler, user_data="list_window")
-    #dpg.add_mouse_down_handler(callback=Controls.mouse_down_handler, user_data="list_window", button=dpg.mvMouseButton_Left)
-    #dpg.add_mouse_release_handler(callback=Controls.mouse_release_handler, user_data="list_window", button=dpg.mvMouseButton_Left)
+    dpg.add_mouse_drag_handler(callback=Controls.mouse_drag_handler)
+    dpg.add_mouse_down_handler(callback=Controls.mouse_down_handler,button=dpg.mvMouseButton_Left)
+    dpg.add_mouse_release_handler(callback=Controls.mouse_release_handler, button=dpg.mvMouseButton_Left)
     #dpg.add_mouse_move_handler(callback=dpg_quad)
 
 
@@ -2022,7 +2088,6 @@ if Theme.dynamic_theming == True and len(sys.argv) > 1:
     dynamic_img_theme(img_avg_col)
 
 while dpg.is_dearpygui_running():
-    # проверяем таймер
     if dpg.is_item_shown("message_window"):
         elapsed = time.perf_counter() - msg_timer_start
         if elapsed >= 1.5:
@@ -2031,6 +2096,10 @@ while dpg.is_dearpygui_running():
     if image_list_loaded and not is_frame_refreshed:
         refresh_frame_pos(current_selected_image_item)
         is_frame_refreshed = True
+
+    if CorrectMousePos <5:
+        print("Correct mouse pos: ", dpg.get_mouse_pos())
+        CorrectMousePos += 1
 
     dpg.render_dearpygui_frame()
 
